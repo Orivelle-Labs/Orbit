@@ -596,6 +596,57 @@ impl Service {
         }
         write(&secret.plain_text_token)
     }
+    fn cached_selection(
+        &self,
+        record: &ConnectionRecord,
+        request: &KeyReference,
+    ) -> Result<Option<KeyCredential>> {
+        self.retain_current_key(record)?;
+        let now = chrono::Utc::now().timestamp();
+        for credential in self
+            .store
+            .list::<KeyCredential>("api-key-credential", Some(&record.view.account_id))?
+        {
+            if !credential.enabled
+                || credential.origin != record.view.panel_origin
+                || credential.account_id != record.view.account_id
+                || credential.installation_id != record.installation_id
+                || credential.authorization_epoch != record.authorization_epoch
+                || credential.api_key_id != request.api_key_id
+                || credential.key_revision != request.key_revision
+                || credential.expires_at.is_some_and(|at| at <= now)
+                || self
+                    .store
+                    .meta(&crate::identity::credential_disabled_reference(
+                        &credential.secret_reference,
+                    ))?
+                    .as_deref()
+                    == Some("1")
+            {
+                continue;
+            }
+            let Ok(bytes) = self.vault.get(&credential.secret_reference) else {
+                continue;
+            };
+            let Ok(secret) = serde_json::from_slice::<InferenceSecret>(&bytes) else {
+                continue;
+            };
+            if secret.origin == credential.origin
+                && secret.account_id == credential.account_id
+                && secret.installation_id == credential.installation_id
+                && secret.authorization_epoch == credential.authorization_epoch
+                && secret.provider_id == "openai"
+                && secret.credential_revision == credential.key_revision
+                && secret.expires_at == credential.expires_at
+                && secret.token.starts_with("orv_sk_")
+                && secret.token.len() <= 4096
+                && !secret.token.chars().any(char::is_whitespace)
+            {
+                return Ok(Some(credential));
+            }
+        }
+        Ok(None)
+    }
     pub async fn select_api_key(&self, request: &KeyReference) -> Result<BootstrapView> {
         let _operation = self.begin_mutation()?;
         request.validate()?;
@@ -603,66 +654,117 @@ impl Service {
         let _serial = serial.lock().await;
         let original = self.key_scope(&request.scope(), None)?;
         self.require_key_access(&original, "api-keys:use")?;
-        let (record, installation, session) = self.fresh_session(&request.connection_id).await?;
-        let view = self
-            .remote_key(&record, &installation, &session, &request.api_key_id)
-            .await?;
-        if !view.selectable || view.legacy_issued || view.key_revision != request.key_revision {
-            return Err(fail("api_key_unavailable"));
-        }
-        let delivery = self
-            .deliver_selected_key(&record, &installation, &session, request, "use")
-            .await?;
-        self.key_scope(&request.scope(), Some(&original))?;
-        let expires_at = delivery
-            .expires_at
-            .as_deref()
-            .map(parse_timestamp)
-            .transpose()?;
-        if expires_at.is_some_and(|at| at <= chrono::Utc::now().timestamp()) {
-            return Err(fail("credential_expired"));
-        }
-        let reference = format!(
-            "inference/{}/{}/{}/{}",
-            installation.id,
-            sha256(record.view.account_id.as_bytes()),
-            delivery.key_revision,
-            uuid()
-        );
-        let secret = InferenceSecret {
-            origin: installation.origin.clone(),
-            account_id: record.view.account_id.clone(),
-            installation_id: installation.id.clone(),
-            provider_id: "openai".into(),
-            credential_revision: delivery.key_revision.clone(),
-            token: delivery.plain_text_token,
-            expires_at,
-            authorization_epoch: record.authorization_epoch,
-        };
-        let bytes =
-            Zeroizing::new(serde_json::to_vec(&secret).map_err(|_| fail("serialization_failed"))?);
-        self.vault.put(&reference, &bytes)?;
+        let (record, credential, delivered) =
+            if let Some(cached) = self.cached_selection(&original, request)? {
+                (original.clone(), cached, false)
+            } else {
+                // Delivery already checks ownership and revision. Do not issue an
+                // extra metadata GET or refresh the account before returning.
+                let (record, installation, session) =
+                    self.fresh_session(&request.connection_id).await?;
+                let delivery = self
+                    .deliver_selected_key(&record, &installation, &session, request, "use")
+                    .await?;
+                self.key_scope(&request.scope(), Some(&original))?;
+                let expires_at = delivery
+                    .expires_at
+                    .as_deref()
+                    .map(parse_timestamp)
+                    .transpose()?;
+                if expires_at.is_some_and(|at| at <= chrono::Utc::now().timestamp()) {
+                    return Err(fail("credential_expired"));
+                }
+                let reference = format!(
+                    "inference/{}/{}/{}/{}",
+                    installation.id,
+                    sha256(record.view.account_id.as_bytes()),
+                    delivery.key_revision,
+                    uuid()
+                );
+                let secret = InferenceSecret {
+                    origin: installation.origin.clone(),
+                    account_id: record.view.account_id.clone(),
+                    installation_id: installation.id.clone(),
+                    provider_id: "openai".into(),
+                    credential_revision: delivery.key_revision.clone(),
+                    token: delivery.plain_text_token,
+                    expires_at,
+                    authorization_epoch: record.authorization_epoch,
+                };
+                let bytes = Zeroizing::new(
+                    serde_json::to_vec(&secret).map_err(|_| fail("serialization_failed"))?,
+                );
+                self.vault.put(&reference, &bytes)?;
+                let credential = KeyCredential {
+                    origin: record.view.panel_origin.clone(),
+                    account_id: record.view.account_id.clone(),
+                    installation_id: record.installation_id.clone(),
+                    api_key_id: request.api_key_id.clone(),
+                    key_revision: request.key_revision.clone(),
+                    secret_reference: reference,
+                    expires_at,
+                    authorization_epoch: record.authorization_epoch,
+                    enabled: true,
+                };
+                (record, credential, true)
+            };
+        let reference = &credential.secret_reference;
         let committed = (|| -> Result<()> {
             let _gate = self
                 .account_gate
                 .lock()
                 .map_err(|_| fail("state_unavailable"))?;
             let mut current = self.key_scope(&request.scope(), Some(&record))?;
+            if !delivered
+                && (self
+                    .store
+                    .get::<KeyCredential>("api-key-credential", reference)?
+                    .is_none_or(|key| !key.enabled)
+                    || credential
+                        .expires_at
+                        .is_some_and(|at| at <= chrono::Utc::now().timestamp())
+                    || self
+                        .store
+                        .meta(&crate::identity::credential_disabled_reference(reference))?
+                        .as_deref()
+                        == Some("1"))
+            {
+                return Err(fail("api_key_unavailable"));
+            }
             self.retain_current_key(&current)?;
-            let credential = KeyCredential {
-                origin: current.view.panel_origin.clone(),
-                account_id: current.view.account_id.clone(),
-                installation_id: current.installation_id.clone(),
-                api_key_id: request.api_key_id.clone(),
-                key_revision: request.key_revision.clone(),
-                secret_reference: reference.clone(),
-                expires_at,
-                authorization_epoch: current.authorization_epoch,
-                enabled: true,
-            };
+            // A delivered key may not have appeared in the previous account
+            // snapshot (for example after creation). Record only delivery facts.
+            if delivered {
+                let mut cache = self.account_cache(&current)?;
+                let existing = cache
+                    .keys
+                    .iter_mut()
+                    .find(|key| key.api_key_id.as_deref() == Some(&request.api_key_id));
+                if let Some(key) = existing {
+                    key.key_revision = Some(request.key_revision.clone());
+                    key.state = "active".into();
+                    key.expires_at = credential.expires_at;
+                } else {
+                    cache.keys.push(KeyMetadata {
+                        provider_id: "openai".into(),
+                        api_key_id: Some(request.api_key_id.clone()),
+                        key_revision: Some(request.key_revision.clone()),
+                        state: "active".into(),
+                        expires_at: credential.expires_at,
+                        name: String::new(),
+                        prefix: String::new(),
+                    });
+                }
+                self.store.put(
+                    "account-cache",
+                    &current.view.id,
+                    &current.view.account_id,
+                    &cache,
+                )?;
+            }
             self.store.put(
                 "api-key-credential",
-                &reference,
+                reference,
                 &current.view.account_id,
                 &credential,
             )?;
@@ -681,7 +783,7 @@ impl Service {
             current.api_key_id = Some(request.api_key_id.clone());
             current.view.credential_revision = Some(request.key_revision.clone());
             current.credential_state = "active".into();
-            current.credential_expires_at = expires_at;
+            current.credential_expires_at = credential.expires_at;
             current.view.permission_state = "allowed".into();
             current.view.revision += 1;
             self.store.put(
@@ -694,14 +796,15 @@ impl Service {
             Ok(())
         })();
         if let Err(error) = committed {
-            self.store.set_meta(
-                &crate::identity::credential_disabled_reference(&reference),
-                "1",
-            )?;
-            let _ = self.vault.delete(&reference);
+            if delivered {
+                self.store.set_meta(
+                    &crate::identity::credential_disabled_reference(reference),
+                    "1",
+                )?;
+                let _ = self.vault.delete(reference);
+            }
             return Err(error);
         }
-        let _ = self.refresh_account_cache(&record.view.id, false).await;
         self.prune_api_key_credentials(&record.view.id)?;
         self.changed();
         self.bootstrap()
