@@ -445,7 +445,7 @@ async function exerciseImages(page, navigation) {
   assert.deepEqual(await readFile(exported), fixture.png);
 
   await page
-    .getByRole("button", { name: "再次编辑", exact: true })
+    .getByRole("button", { name: "作为参考", exact: true })
     .first()
     .click();
   await page.getByRole("button", { name: "编辑图片", exact: true }).waitFor();

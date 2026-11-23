@@ -160,7 +160,7 @@ test("local references and history editing work before key selection and keep th
   await page.getByRole("tab", { name: "本地历史" }).click();
   await page
     .locator(".history-card")
-    .getByRole("button", { name: "再次编辑", exact: true })
+    .getByRole("button", { name: "作为参考", exact: true })
     .click();
   await expect(page.locator(".input-images")).toContainText("saved-image.png");
   await expect(
