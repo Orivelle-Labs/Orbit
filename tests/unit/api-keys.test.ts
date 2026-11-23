@@ -65,6 +65,133 @@ function button(label: string) {
   return wrapper!.findAll("button").find((button) => button.text() === label)!;
 }
 describe("API Key account and secret boundaries", () => {
+  it("commits a selection from its returned state without waiting for a slow metadata list or another bootstrap", async () => {
+    const api = useApiKeysStore();
+    await api.load();
+    const chosen = apiKeyPage().items[1]!;
+    api.page!.bindings[0]!.api_key_id = chosen.id;
+    api.page!.bindings[0]!.key_revision = "a".repeat(64);
+    api.page!.bindings[1]!.api_key_id = chosen.id;
+    api.page!.bindings[1]!.key_revision = chosen.key_revision;
+    const result = bootstrap("synthetic-account-a", 2);
+    result.connections[0]!.credential_revision = chosen.key_revision;
+    result.connections[0]!.revision++;
+    const releaseList: ((value: ReturnType<typeof apiKeyPage>) => void)[] = [];
+    bridge.call.mockClear().mockImplementation((command) => {
+      if (command === "select_api_key") return result;
+      if (command === "list_api_keys")
+        return new Promise((resolve) => {
+          releaseList.push(resolve);
+        });
+      return [];
+    });
+    expect(await api.choose(chosen)).toBe(true);
+    await flushPromises();
+    expect(api.busy).toBe(false);
+    expect(api.page?.selected?.id).toBe(chosen.id);
+    expect(api.page?.bindings.map((binding) => binding.current)).toEqual([
+      false,
+      true,
+    ]);
+    expect(useOrbitStore().activeConnection?.credential_revision).toBe(
+      chosen.key_revision,
+    );
+    expect(
+      bridge.call.mock.calls.filter(([command]) => command === "bootstrap"),
+    ).toHaveLength(0);
+    expect(releaseList).toHaveLength(1);
+    for (const release of releaseList)
+      release({ ...apiKeyPage(), selected: chosen });
+    await flushPromises();
+  });
+  it("does not apply a late key-selection result after the account changes", async () => {
+    const api = useApiKeysStore();
+    await api.load();
+    let release!: (value: ReturnType<typeof bootstrap>) => void;
+    const pendingList = new Promise<ReturnType<typeof apiKeyPage>>(() => {});
+    bridge.call.mockImplementation((command) =>
+      command === "select_api_key"
+        ? new Promise((resolve) => {
+            release = resolve;
+          })
+        : command === "list_api_keys"
+          ? pendingList
+          : [],
+    );
+    const choosing = api.choose(apiKeyPage().items[1]!);
+    useOrbitStore().acceptState(bootstrap("other-actor", 3));
+    release(bootstrap("synthetic-account-a", 2));
+    expect(await choosing).toBe(false);
+    expect(api.page).toBeNull();
+    expect(useOrbitStore().account?.id).toBe("other-actor");
+  });
+  it("loads the new account after an old account selection finishes", async () => {
+    const api = useApiKeysStore();
+    await api.load();
+    let release!: (value: ReturnType<typeof bootstrap>) => void;
+    const nextPage = { ...apiKeyPage(), currency: "EUR" };
+    bridge.call.mockClear().mockImplementation((command) =>
+      command === "select_api_key"
+        ? new Promise((resolve) => {
+            release = resolve;
+          })
+        : command === "list_api_keys"
+          ? nextPage
+          : [],
+    );
+    const choosing = api.choose(apiKeyPage().items[1]!);
+    useOrbitStore().acceptState(bootstrap("other-actor", 3));
+    await flushPromises();
+    expect(api.page).toBeNull();
+    release(bootstrap("synthetic-account-a", 2));
+    expect(await choosing).toBe(false);
+    await flushPromises();
+    expect(api.page?.currency).toBe("EUR");
+    const lists = bridge.call.mock.calls.filter(
+      ([command]) => command === "list_api_keys",
+    );
+    expect(lists).toHaveLength(1);
+    expect(lists[0]![1]).toMatchObject({
+      connection_id: "connection-other-actor",
+    });
+    expect(useOrbitStore().account?.id).toBe("other-actor");
+  });
+  it("reloads after switching away and back while an old selection fails", async () => {
+    const api = useApiKeysStore();
+    await api.load();
+    let reject!: (error: Error) => void;
+    bridge.call.mockClear().mockImplementation((command) =>
+      command === "select_api_key"
+        ? new Promise((_resolve, fail) => {
+            reject = fail;
+          })
+        : command === "list_api_keys"
+          ? apiKeyPage()
+          : [],
+    );
+    const choosing = api.choose(apiKeyPage().items[1]!);
+    useOrbitStore().acceptState(bootstrap("other-actor", 3));
+    await flushPromises();
+    useOrbitStore().acceptState(bootstrap("synthetic-account-a", 4));
+    await flushPromises();
+    expect(api.page).toBeNull();
+    expect(
+      bridge.call.mock.calls.filter(([command]) => command === "list_api_keys"),
+    ).toHaveLength(0);
+    reject(new Error("account_scope_mismatch"));
+    expect(await choosing).toBe(false);
+    await flushPromises();
+    expect(useOrbitStore().account?.id).toBe("synthetic-account-a");
+    expect(api.page?.selected?.id).toBe(apiKeyPage().items[0]!.id);
+    const lists = bridge.call.mock.calls.filter(
+      ([command]) => command === "list_api_keys",
+    );
+    expect(lists).toHaveLength(1);
+    expect(lists[0]![1]).toMatchObject({
+      connection_id: "connection-synthetic-account-a",
+      expected_revision: 1,
+    });
+  });
   it("drops a list response after the active account changes", async () => {
     let release!: (value: ReturnType<typeof apiKeyPage>) => void;
     bridge.call.mockImplementation((command) =>

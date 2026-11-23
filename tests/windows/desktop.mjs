@@ -337,12 +337,13 @@ async function exerciseImages(page, navigation) {
   await expect(advanced).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".parameter-details")).toHaveText("高级选项");
   await advanced.click();
-  await expect(page.locator("#image-background")).toContainText("不透明");
-  await page.locator("#image-background").click();
-  await expect(page.getByRole("option")).toHaveText(["不透明", "透明"]);
-  await page.keyboard.press("Escape");
+  await expect(page.locator("#image-background")).not.toBeChecked();
+  await expect(page.locator("#image-background")).toHaveAttribute(
+    "role",
+    "switch",
+  );
+  await expect(page.locator("#image-n")).toBeDisabled();
   for (const id of [
-    "image-n",
     "image-size",
     "image-width",
     "image-height",
@@ -357,7 +358,7 @@ async function exerciseImages(page, navigation) {
       page.getByRole("button", { name: "复用参数", exact: true }),
     ).toHaveCount(0);
     await expect(page.locator("#image-prompt")).toHaveValue("");
-    await expect(page.locator("#image-background")).toContainText("不透明");
+    await expect(page.locator("#image-background")).not.toBeChecked();
     await expect(page.locator("#image-quality")).toHaveCount(0);
     await expect(page.locator("#image-size")).toHaveCount(0);
     await expect(page.locator(".task-facts")).not.toContainText(
@@ -370,7 +371,7 @@ async function exerciseImages(page, navigation) {
     await page.screenshot({
       path: path.join(evidence, "legacy-history.png"),
     });
-    await choose(page, "image-background", "不透明");
+    await page.locator("#image-background").uncheck();
     receipt.checks.push(
       "v1.0.1 history stays readable while removed parameter details and reuse are absent",
     );
@@ -445,7 +446,7 @@ async function exerciseImages(page, navigation) {
   assert.deepEqual(await readFile(exported), fixture.png);
 
   await page
-    .getByRole("button", { name: "再次编辑", exact: true })
+    .getByRole("button", { name: "作为参考", exact: true })
     .first()
     .click();
   await page.getByRole("button", { name: "编辑图片", exact: true }).waitFor();
@@ -459,7 +460,7 @@ async function exerciseImages(page, navigation) {
   await page.locator("#image-prompt").fill("Orbit Windows fixture edit");
   await expect(advanced).toHaveAttribute("aria-expanded", "false");
   await advanced.click();
-  await choose(page, "image-background", "透明");
+  await page.locator("#image-background").check();
   await advanced.click();
   await page.getByRole("button", { name: "编辑图片", exact: true }).click();
   await waitForImages(page, imagesBefore + 2);

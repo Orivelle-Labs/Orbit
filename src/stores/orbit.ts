@@ -439,6 +439,12 @@ export const useOrbitStore = defineStore("orbit", () => {
       modelsLoading.value = false;
       return false;
     }
+    if (!connection.node_id) {
+      models.value = [];
+      modelsLoading.value = false;
+      if (!options.silent) notify(t("access.chooseNodeFirst"), "warning");
+      return false;
+    }
     modelsLoading.value = true;
     try {
       const result = await call("list_models", {

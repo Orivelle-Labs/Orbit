@@ -183,7 +183,7 @@ onUnmounted(() => {
         "
         @click="choose"
       >
-        {{ t("keys.use") }}
+        {{ t(api.busy ? "keys.switching" : "keys.use") }}
       </button>
     </div>
   </OrbitDialog>

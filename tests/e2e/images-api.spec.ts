@@ -49,8 +49,8 @@ test("API catalog exposes advanced controls inside the collapsed section without
   await fixture(page, { models: [model] });
   await page.goto("/#/images");
   await choose(page, "image-model", "synthetic-image");
-  await expect(page.locator(".image-route-hint")).toHaveText(
-    "本次使用订阅图片服务",
+  await expect(page.locator(".image-parameter-summary")).toHaveText(
+    "使用默认图像参数",
   );
   const advanced = page.getByRole("button", { name: "高级选项" });
   await expect(advanced).toHaveAttribute("aria-expanded", "false");
@@ -58,26 +58,32 @@ test("API catalog exposes advanced controls inside the collapsed section without
   await advanced.click();
   await expect(advanced).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("#image-parameters .field-label")).toHaveText([
-    "结果数量",
     "请求尺寸",
     "质量",
-    "背景",
     "输出格式",
     "画面规划复杂度",
     "内容审核",
+    "结果数量",
+    "透明背景",
   ]);
-  await choose(page, "image-n", "1");
+  await page.locator("#image-n").focus();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowLeft");
   await choose(page, "image-size", "自动");
   await choose(page, "image-quality", "自动");
   await choose(page, "image-output_format", "PNG");
-  await expect(page.locator("#image-background")).toContainText("不透明");
-  await choose(page, "image-background", "透明");
+  await expect(
+    page.getByRole("switch", { name: "透明背景", exact: true }),
+  ).not.toBeChecked();
+  await page.locator("#image-background").check();
   await page.locator("#image-stream").check();
   await expect(page.locator("#image-partials")).toHaveValue("1");
-  await expect(page.locator(".image-route-hint")).toContainText("高级图像 API");
+  await expect(page.locator(".image-parameter-summary")).toContainText(
+    "流式预览",
+  );
   await page.locator("#image-stream").uncheck();
-  await expect(page.locator(".image-route-hint")).toHaveText(
-    "本次使用订阅图片服务",
+  await expect(page.locator(".image-parameter-summary")).toHaveText(
+    "已调整图像参数： 透明背景",
   );
   await page.locator(".parameter-details").screenshot({
     path: ".cache/evidence/images-api-options.png",
@@ -99,6 +105,47 @@ test("API catalog exposes advanced controls inside the collapsed section without
   expect(await calls(page, "create_image_task")).toBe(1);
 });
 
+test("quantity sliders honor model limits and incompatible formats clear transparent backgrounds before submission", async ({
+  page,
+}) => {
+  const limited = structuredClone(model);
+  limited.image_api_parameters.parameters.max_results = 3;
+  await fixture(page, { models: [limited] });
+  await page.goto("/#/images");
+  await choose(page, "image-model", "synthetic-image");
+  await page.getByRole("button", { name: "高级选项" }).click();
+  const quantity = page.locator("#image-n");
+  await expect(quantity).toHaveAttribute("max", "3");
+  await quantity.focus();
+  await page.keyboard.press("End");
+  await expect(quantity).toHaveValue("3");
+  await expect(page.locator(".image-count-value")).toHaveText("3 张");
+  await page.locator("#image-background").check();
+  await page.locator("#image-stream").check();
+  const spacing = await page
+    .locator(".image-stream-control")
+    .evaluate((node) => parseFloat(getComputedStyle(node).marginTop));
+  expect(spacing).toBeGreaterThanOrEqual(20);
+  await page.locator("#image-stream").uncheck();
+  await choose(page, "image-output_format", "JPEG");
+  await expect(page.locator("#image-background")).not.toBeChecked();
+  await expect(page.locator("#image-background")).toBeDisabled();
+  await expect(page.locator("#image-background-hint")).toContainText(
+    "PNG 或 WebP",
+  );
+  await expect(page.locator(".image-parameter-summary")).not.toContainText(
+    /计费|销售价|订阅/,
+  );
+  await page.locator("#image-prompt").fill("Synthetic limited batch");
+  await page.getByRole("button", { name: "生成图片", exact: true }).click();
+  expect((await request(page))?.parameters).toMatchObject({
+    n: 3,
+    background: "opaque",
+    output_format: "jpeg",
+  });
+  expect(await calls(page, "create_image_task")).toBe(1);
+});
+
 test("Unicode prompt counts keep the subscription byte boundary and API character limit distinct", async ({
   page,
 }) => {
@@ -107,11 +154,13 @@ test("Unicode prompt counts keep the subscription byte boundary and API characte
   await choose(page, "image-model", "synthetic-image");
   const prompt = page.locator("#image-prompt");
   await prompt.fill("中".repeat(10000));
-  await expect(page.locator(".image-route-hint")).toHaveText(
-    "本次使用订阅图片服务",
+  await expect(page.locator(".image-parameter-summary")).toHaveText(
+    "使用默认图像参数",
   );
   await prompt.fill("中".repeat(10923));
-  await expect(page.locator(".image-route-hint")).toContainText("高级图像 API");
+  await expect(page.locator(".image-parameter-summary")).toContainText(
+    "提示词",
+  );
   await expect(
     page.getByRole("button", { name: "生成图片", exact: true }),
   ).toBeEnabled();
@@ -139,14 +188,16 @@ test("editing selects scoped PNG mask or markup and clears it when the reference
   await page.getByRole("button", { name: "高级选项" }).click();
   await page.getByRole("button", { name: "选择蒙版 PNG" }).click();
   await expect(page.locator(".image-materials")).toContainText("mask.png");
-  await expect(page.locator(".image-route-hint")).toContainText("高级图像 API");
+  await expect(page.locator(".image-parameter-summary")).toContainText(
+    "编辑蒙版",
+  );
   await page.getByRole("button", { name: "选择标注 PNG" }).click();
   await expect(page.locator(".image-materials")).toContainText("markup.png");
   await expect(page.locator(".image-materials")).not.toContainText("mask.png");
   await page.locator(".input-images .icon-button").click();
   await expect(page.locator(".image-materials")).toHaveCount(0);
-  await expect(page.locator(".image-route-hint")).toHaveText(
-    "本次使用订阅图片服务",
+  await expect(page.locator(".image-parameter-summary")).toHaveText(
+    "使用默认图像参数",
   );
   await page.getByRole("button", { name: "添加参考图", exact: true }).click();
   await page.getByRole("button", { name: "选择标注 PNG" }).click();
@@ -182,14 +233,16 @@ test("format controls expose custom sizes, compression, SVG and GIF options and 
   await expect(page.locator("#image-frame-count")).toHaveValue("9");
   await page.locator("#image-frame-count").fill("16");
   await page.locator("#image-frame-duration").fill("200");
+  await page.locator("#image-n").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#image-n")).toHaveValue("2");
   await choose(page, "image-output_format", "SVG");
   await expect(page.locator("#image-frame-count")).toHaveCount(0);
-  await choose(page, "image-n", "2");
+  await expect(page.locator("#image-n")).toBeDisabled();
+  await expect(page.locator("#image-n")).toHaveValue("1");
+  await expect(page.locator("#image-n")).toHaveAttribute("max", "1");
   await page.locator("#image-prompt").fill("Synthetic vector");
-  await expect(
-    page.getByRole("button", { name: "生成图片", exact: true }),
-  ).toBeDisabled();
-  await choose(page, "image-n", "1");
+
   await page.locator("#image-svg-model").fill("synthetic-vector-author");
   await choose(page, "image-svg-reasoning", "高");
   await expect(
@@ -298,7 +351,7 @@ for (const format of ["svg", "gif"] as const) {
     );
     await expect(result).not.toContainText("SVG+XML");
     await expect(
-      result.getByRole("button", { name: "再次编辑", exact: true }),
+      result.getByRole("button", { name: "作为参考", exact: true }),
     ).toBeDisabled();
     const copy = animated ? "复制首帧" : "复制图片";
     await result.getByRole("button", { name: copy, exact: true }).click();
@@ -327,7 +380,7 @@ for (const format of ["svg", "gif"] as const) {
     await expect(
       page
         .locator(".history-card")
-        .getByRole("button", { name: "再次编辑", exact: true }),
+        .getByRole("button", { name: "作为参考", exact: true }),
     ).toBeDisabled();
     expect(await calls(page, "use_history_as_input")).toBe(0);
     expect(await calls(page, "create_image_task")).toBe(0);

@@ -528,7 +528,7 @@ test("UTF-8 bound prevents a paid submit and failed paid submission never retrie
   expect(await calls(page, "create_image_task")).toBe(0);
   await expect(page.locator("#image-quality")).toHaveCount(0);
   await page.getByRole("button", { name: "高级选项" }).click();
-  await choose(page, "image-background", "透明");
+  await page.locator("#image-background").check();
   await page.locator("#image-prompt").fill("Synthetic image prompt");
   await page.getByRole("button", { name: "生成图片", exact: true }).click();
   await expect(
@@ -571,11 +571,12 @@ test("image background defaults to opaque and is submitted while advanced option
   await expect(advanced).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".parameter-details")).toHaveText("高级选项");
   await advanced.click();
-  await expect(page.locator("#image-background")).toContainText("不透明");
+  await expect(page.locator("#image-background")).not.toBeChecked();
   await expect(page.locator(".parameter-details > .field-hint")).toHaveCount(0);
-  await page.locator("#image-background").click();
-  await expect(page.getByRole("option")).toHaveText(["不透明", "透明"]);
-  await page.keyboard.press("Escape");
+  await expect(page.locator("#image-background")).toHaveAttribute(
+    "role",
+    "switch",
+  );
   await advanced.click();
   await expect(advanced).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".parameter-details")).toHaveText("高级选项");
@@ -619,10 +620,11 @@ test("available image controls keep legacy parameters out of the workbench", asy
     page.getByRole("button", { name: "复用参数", exact: true }),
   ).toHaveCount(0);
   await expect(page.locator("#image-prompt")).toHaveValue("");
-  await choose(page, "image-background", "透明");
-  await expect(page.locator("#image-background")).toContainText("透明");
+  await page.locator("#image-background").check();
+  await expect(page.locator("#image-background")).toBeChecked();
+  await expect(page.locator("#image-n")).toBeDisabled();
+  await expect(page.locator("#image-n")).toHaveValue("1");
   for (const id of [
-    "image-n",
     "image-size",
     "image-width",
     "image-height",
@@ -633,7 +635,7 @@ test("available image controls keep legacy parameters out of the workbench", asy
   ])
     await expect(page.locator("#" + id)).toHaveCount(0);
   await expect(page.locator(".parameter-details")).toContainText(
-    "透明背景可能增加图片 token 用量",
+    "已开启透明背景",
   );
   await expect(page.locator(".task-facts")).toHaveCount(0);
   await expect(page.locator(".image-result")).not.toContainText("1536x864");

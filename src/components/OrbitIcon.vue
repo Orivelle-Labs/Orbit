@@ -4,6 +4,7 @@ const paths: Record<string, string> = {
   chart: "M4 3v17h17M8 15v-4M13 15V7M18 15V4",
   home: "M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z",
   images: "M4 4h16v16H4ZM4 16l5-5 4 4 3-3 4 4M8 8h.01",
+  "image-plus": "M12 4H4v16h16v-8M4 16l5-5 4 4 3-3 4 4M8 8h.01M18 2v6M15 5h6",
   access: "M8 3v5M16 3v5M5 8h14v3a7 7 0 0 1-14 0ZM12 18v3",
   settings:
     "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4",
@@ -13,6 +14,7 @@ const paths: Record<string, string> = {
   check: "m5 12 4 4 10-10",
   close: "m6 6 12 12M18 6 6 18",
   plus: "M12 5v14M5 12h14",
+  info: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM12 11v6M12 7h.01",
   external: "M14 3h7v7M21 3l-9 9M10 3H4v17h17v-6",
   shield: "m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6ZM8 12l3 3 5-6",
   folder: "M3 6h7l2 2h9v12H3Z",

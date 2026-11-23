@@ -31,6 +31,7 @@ export const useApiKeysStore = defineStore("api-keys", () => {
   } | null>(null);
   let generation = 0;
   let requested = false;
+  let listScope = "";
   const identity = computed(() => {
     const connection = orbit.activeConnection;
     return connection
@@ -60,6 +61,7 @@ export const useApiKeysStore = defineStore("api-keys", () => {
       return;
     }
     loading.value = true;
+    listScope = captured;
     try {
       const result = await call("list_api_keys", {
         ...queryScope,
@@ -93,10 +95,31 @@ export const useApiKeysStore = defineStore("api-keys", () => {
     busy.value = true;
     const actor = identity.value;
     try {
-      await call("select_api_key", request);
+      const result = await call("select_api_key", request);
       if (actor !== identity.value) return false;
-      await orbit.refresh();
-      await load();
+      orbit.acceptState(result);
+      if (
+        actor !== identity.value ||
+        orbit.activeConnection?.credential_revision !== key.key_revision
+      )
+        return false;
+      ++generation;
+      if (page.value) {
+        page.value = {
+          ...page.value,
+          selected: { ...key },
+          selected_ready:
+            orbit.state.session.inference_credential_status === "ready",
+          bindings: page.value.bindings.map((binding) => ({
+            ...binding,
+            current:
+              binding.api_key_id === key.id &&
+              binding.key_revision === key.key_revision,
+          })),
+        };
+      }
+      // State has committed. Refresh metadata without holding the picker open.
+      void load();
       return true;
     } catch (reason) {
       if (actor === identity.value) orbit.report(reason);
@@ -185,6 +208,7 @@ export const useApiKeysStore = defineStore("api-keys", () => {
     identity,
     () => {
       ++generation;
+      listScope = "";
       page.value = null;
       error.value = null;
       search.value = "";
@@ -195,12 +219,9 @@ export const useApiKeysStore = defineStore("api-keys", () => {
     },
     { flush: "sync" },
   );
-  watch(
-    () => orbit.scope,
-    () => {
-      if (requested) void load();
-    },
-  );
+  watch([() => orbit.scope, busy], () => {
+    if (requested && !busy.value && listScope !== orbit.scope) void load();
+  });
   return {
     page,
     loading,
