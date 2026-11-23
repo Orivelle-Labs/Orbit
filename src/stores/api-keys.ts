@@ -208,6 +208,7 @@ export const useApiKeysStore = defineStore("api-keys", () => {
     identity,
     () => {
       ++generation;
+      listScope = "";
       page.value = null;
       error.value = null;
       search.value = "";
@@ -218,12 +219,9 @@ export const useApiKeysStore = defineStore("api-keys", () => {
     },
     { flush: "sync" },
   );
-  watch(
-    () => orbit.scope,
-    () => {
-      if (requested && !busy.value && listScope !== orbit.scope) void load();
-    },
-  );
+  watch([() => orbit.scope, busy], () => {
+    if (requested && !busy.value && listScope !== orbit.scope) void load();
+  });
   return {
     page,
     loading,
