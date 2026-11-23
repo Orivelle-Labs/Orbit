@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 const bridge = vi.hoisted(() => ({
   call: vi.fn(),
@@ -497,5 +497,126 @@ describe("account and revision isolation", () => {
     pending.resolve(task());
     await first;
     expect(store.busy.has("paid-submit")).toBe(false);
+  });
+});
+
+describe("model loading requires node selection", () => {
+  afterEach(() => useOrbitStore().dispose());
+
+  function unselectedNodeState(revision = 1) {
+    const state = bootstrap("synthetic-account-a", revision);
+    state.connections[0]!.node_id = null;
+    state.connections[0]!.node_label = null;
+    state.connections[0]!.edge_base_url = null;
+    state.settings.check_updates_on_start = false;
+    return state;
+  }
+
+  it.each([
+    ["zh-CN", "请先选择可用节点。"],
+    ["en", "Select an available node first."],
+  ] as const)(
+    "prompts for a node at startup in %s without requesting models",
+    async (locale, message) => {
+      const state = unselectedNodeState();
+      state.settings.locale = locale;
+      bridge.call.mockImplementation((command) => {
+        if (command === "bootstrap" || command === "refresh_account")
+          return state;
+        throw new Error(`Unexpected command: ${command}`);
+      });
+      const store = useOrbitStore();
+      await store.initialize();
+      expect(bridge.call.mock.calls.map(([command]) => command)).toEqual([
+        "bootstrap",
+        "refresh_account",
+      ]);
+      expect(store.models).toEqual([]);
+      expect(store.modelsLoading).toBe(false);
+      expect(store.notice).toEqual({ text: message, tone: "warning" });
+
+      store.clearNotice();
+      expect(await store.loadModels({ silent: true })).toBe(false);
+      expect(store.notice).toBeNull();
+      expect(bridge.call).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("clears old models and prompts when an account refresh removes the selected node", async () => {
+    const store = useOrbitStore();
+    const initial = bootstrap();
+    bridge.call.mockResolvedValue([imageModel()]);
+    store.acceptState(initial);
+    await vi.waitFor(() => expect(store.models).toHaveLength(1));
+
+    const refreshed = unselectedNodeState(2);
+    refreshed.connections[0]!.revision++;
+    refreshed.nodes[0]!.id = "node-b";
+    bridge.call.mockReset().mockImplementation((command) => {
+      if (command === "bootstrap") return initial;
+      if (command === "refresh_account") return refreshed;
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    await store.refresh(true);
+    expect(bridge.call.mock.calls.map(([command]) => command)).toEqual([
+      "bootstrap",
+      "refresh_account",
+    ]);
+    expect(store.activeConnection?.node_id).toBeNull();
+    expect(store.models).toEqual([]);
+    expect(store.modelsLoading).toBe(false);
+    expect(store.notice).toEqual({
+      text: "请先选择可用节点。",
+      tone: "warning",
+    });
+  });
+
+  it("loads models after the user selects an available node", async () => {
+    const initial = unselectedNodeState();
+    const selected = bootstrap("synthetic-account-a", 2);
+    selected.connections[0]!.revision++;
+    bridge.call.mockImplementation((command) => {
+      if (command === "bootstrap" || command === "refresh_account")
+        return initial;
+      if (command === "select_node") return selected;
+      if (command === "list_models") return [imageModel()];
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const store = useOrbitStore();
+    await store.initialize();
+    bridge.call.mockClear();
+    await store.selectNode("node-a");
+    await vi.waitFor(() => expect(store.models).toEqual([imageModel()]));
+    expect(bridge.call.mock.calls).toEqual([
+      [
+        "select_node",
+        {
+          connection_id: initial.active_connection_id,
+          node_id: "node-a",
+          expected_revision: 1,
+        },
+      ],
+      ["list_models", { connection_id: selected.active_connection_id }],
+    ]);
+    expect(store.modelsLoading).toBe(false);
+    expect(store.ready).toBe(true);
+  });
+
+  it("ignores a pending model response after the node selection is cleared", async () => {
+    const response = deferred<ModelView[]>();
+    bridge.call.mockReturnValue(response.promise);
+    const store = useOrbitStore();
+    store.acceptState(bootstrap());
+    expect(store.modelsLoading).toBe(true);
+    store.acceptState(unselectedNodeState(2));
+    response.resolve([imageModel()]);
+    await Promise.resolve();
+    expect(bridge.call).toHaveBeenCalledTimes(1);
+    expect(store.models).toEqual([]);
+    expect(store.modelsLoading).toBe(false);
+    expect(store.notice).toEqual({
+      text: "请先选择可用节点。",
+      tone: "warning",
+    });
   });
 });
