@@ -150,6 +150,7 @@ const zh = {
   "keys.legacyCleanup": "旧版自动创建，迁移完成后将清理",
   "keys.noMatchPeriod": "没有找到匹配的密钥。",
   "keys.use": "使用此密钥",
+  "keys.switching": "正在切换…",
   "keys.moreSuffix": "的更多操作",
   "keys.errorChanged": "密钥已发生变化，请刷新后重试。",
   "keys.errorAuthorization": "请重新连接账户，授权 API Key 管理。",
@@ -902,6 +903,7 @@ const en: Record<keyof typeof zh, string> = {
     "Created by an earlier version; removed after migration",
   "keys.noMatchPeriod": "No matching keys.",
   "keys.use": "Use this key",
+  "keys.switching": "Switching…",
   "keys.moreSuffix": " · More actions",
   "keys.errorChanged": "The key has changed. Refresh and try again.",
   "keys.errorAuthorization":

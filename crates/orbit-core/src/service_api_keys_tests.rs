@@ -128,6 +128,112 @@ fn binding(service: &Service, record: &ConnectionRecord) -> HelperBinding {
 }
 
 #[tokio::test]
+async fn selection_delivers_uncached_keys_without_a_metadata_probe_or_account_refresh() {
+    let (_dir, service, _vault, record, _) = super::super::tests::setup();
+    let selected = key('A', false);
+    profile(&service, &record, &[]);
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let seen = observed.clone();
+    let sent = selected.clone();
+    service.http.scripted(Arc::new(move |request| {
+        let key = sent.clone();
+        let seen = seen.clone();
+        Box::pin(async move {
+            let path = url::Url::parse(&request.url).unwrap().path().to_owned();
+            seen.lock().unwrap().push(path.clone());
+            if path.ends_with("/ticket") {
+                return response(json!({"delivery_ticket":"t".repeat(43),
+                    "expires_at":(chrono::Utc::now()+chrono::Duration::seconds(60)).to_rfc3339()}));
+            }
+            assert_eq!(path, "/api/v1/orbit/api-keys/delivery");
+            response(json!({"provider_id":"openai","api_key_id":key.id,
+                "key_revision":key.key_revision,"plain_text_token":"orv_sk_first_delivery","expires_at":null}))
+        })
+    }));
+    let state = service
+        .select_api_key(&reference(&record, &selected))
+        .await
+        .unwrap();
+    assert_eq!(observed.lock().unwrap().len(), 2);
+    assert_eq!(state.session.inference_credential_status, "ready");
+    let current = service.record(&record.view.id).unwrap();
+    assert!(
+        service
+            .account_cache(&current)
+            .unwrap()
+            .keys
+            .iter()
+            .any(|key| key.api_key_id.as_ref() == Some(&selected.id))
+    );
+}
+
+#[tokio::test]
+async fn selection_reuses_retained_credentials_offline_and_does_not_revive_a_disabled_reference() {
+    let (_dir, service, _vault, record, _) = super::super::tests::setup();
+    let a = key('A', false);
+    let b = key('B', false);
+    profile(&service, &record, &[a.clone(), b.clone()]);
+    selection_transport(&service, vec![a.clone()]);
+    service
+        .select_api_key(&reference(&record, &a))
+        .await
+        .unwrap();
+    let old = service.record(&record.view.id).unwrap();
+    let grant = binding(&service, &old);
+    selection_transport(&service, vec![b.clone()]);
+    service.select_api_key(&reference(&old, &b)).await.unwrap();
+    let second = service.record(&record.view.id).unwrap();
+    let calls = Arc::new(Mutex::new(0));
+    let observed = calls.clone();
+    service.http.scripted(Arc::new(move |_| {
+        *observed.lock().unwrap() += 1;
+        Box::pin(async { Err(fail("api_key_unavailable")) })
+    }));
+    let state = service
+        .select_api_key(&reference(&second, &a))
+        .await
+        .unwrap();
+    assert_eq!(*calls.lock().unwrap(), 0);
+    let current = service.record(&record.view.id).unwrap();
+    assert_eq!(
+        current.credential_reference.as_ref(),
+        Some(&grant.secret_reference)
+    );
+    assert!(
+        !serde_json::to_string(&state)
+            .unwrap()
+            .contains("orv_sk_synthetic")
+    );
+    service
+        .store
+        .set_meta(
+            &crate::identity::credential_disabled_reference(&grant.secret_reference),
+            "1",
+        )
+        .unwrap();
+    assert_eq!(
+        service
+            .select_api_key(&reference(&current, &a))
+            .await
+            .err()
+            .unwrap()
+            .code,
+        "api_key_unavailable"
+    );
+    assert_eq!(*calls.lock().unwrap(), 1);
+    assert_eq!(
+        service
+            .store
+            .meta(&crate::identity::credential_disabled_reference(
+                &grant.secret_reference
+            ))
+            .unwrap()
+            .as_deref(),
+        Some("1")
+    );
+}
+
+#[tokio::test]
 async fn selection_keeps_bound_credentials_and_frozen_image_authority_then_fails_closed_on_retirement()
  {
     let (_dir, service, vault, record, _) = super::super::tests::setup();
