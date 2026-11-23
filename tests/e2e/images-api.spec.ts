@@ -298,7 +298,7 @@ for (const format of ["svg", "gif"] as const) {
     );
     await expect(result).not.toContainText("SVG+XML");
     await expect(
-      result.getByRole("button", { name: "再次编辑", exact: true }),
+      result.getByRole("button", { name: "作为参考", exact: true }),
     ).toBeDisabled();
     const copy = animated ? "复制首帧" : "复制图片";
     await result.getByRole("button", { name: copy, exact: true }).click();
@@ -327,7 +327,7 @@ for (const format of ["svg", "gif"] as const) {
     await expect(
       page
         .locator(".history-card")
-        .getByRole("button", { name: "再次编辑", exact: true }),
+        .getByRole("button", { name: "作为参考", exact: true }),
     ).toBeDisabled();
     expect(await calls(page, "use_history_as_input")).toBe(0);
     expect(await calls(page, "create_image_task")).toBe(0);

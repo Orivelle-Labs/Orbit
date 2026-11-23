@@ -1089,12 +1089,12 @@ function copyLabel(image: HistoryImage) {
                   :title="
                     !referenceAllowed(image)
                       ? t('images.rasterReferenceOnly')
-                      : undefined
+                      : t('action.edit')
                   "
                   :aria-label="t('action.edit')"
                   @click="edit(image)"
                 >
-                  <OrbitIcon name="edit" />
+                  <OrbitIcon name="image-plus" />
                 </button>
               </div>
             </article>
@@ -1255,12 +1255,12 @@ function copyLabel(image: HistoryImage) {
                 :title="
                   !referenceAllowed(image)
                     ? t('images.rasterReferenceOnly')
-                    : undefined
+                    : t('action.edit')
                 "
                 :aria-label="t('action.edit')"
                 @click="edit(image)"
               >
-                <OrbitIcon name="edit" /></button
+                <OrbitIcon name="image-plus" /></button
               ><button
                 class="icon-button danger"
                 :aria-label="t('action.delete')"
@@ -1314,7 +1314,7 @@ function copyLabel(image: HistoryImage) {
           :title="
             !referenceAllowed(enlarged)
               ? t('images.rasterReferenceOnly')
-              : undefined
+              : t('action.edit')
           "
           @click="edit(enlarged)"
         >
