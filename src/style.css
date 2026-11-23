@@ -2205,18 +2205,114 @@ textarea::placeholder {
   }
 }
 
-.image-route-hint {
+.image-parameter-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
   font-size: 12px;
   line-height: 1.6;
   color: var(--muted);
   margin: 0;
 }
-.image-route-api {
-  color: var(--text);
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+.image-parameter-summary .icon {
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+}
+.image-count-control,
+.image-background-control {
+  margin-top: 18px;
+}
+.image-count-value {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+input.image-count-slider {
+  width: 100%;
+  height: 18px;
+  margin: 10px 0 4px;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  accent-color: var(--accent);
+}
+.image-count-marks {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+input.image-background-switch {
+  appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: var(--line);
+  box-shadow: none;
+}
+.image-background-switch::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
   background: var(--surface);
+  transition: transform 0.15s;
+}
+input.image-background-switch:checked {
+  background: var(--accent);
+}
+.image-background-switch:checked::before {
+  transform: translateX(14px);
+}
+.image-background-control .field-hint {
+  margin-top: 5px;
+}
+.image-stream-control {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid var(--line);
+}
+.history-card-info .image-card-actions {
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 3px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.history-details-button {
+  margin-right: auto;
+  font-size: 11px;
+  gap: 2px;
+}
+.history-details-button .icon {
+  width: 14px;
+  height: 14px;
+}
+.image-history-dialog {
+  width: min(940px, calc(100vw - 36px));
+}
+.image-history-dialog .dialog-heading {
+  padding-bottom: 17px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 20px;
+}
+.image-history-dialog .dialog-description:empty {
+  display: none;
+}
+.image-details-save {
+  margin-right: auto;
 }
 .image-stream-toggle {
   display: flex;

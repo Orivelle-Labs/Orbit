@@ -14,6 +14,7 @@ const paths: Record<string, string> = {
   check: "m5 12 4 4 10-10",
   close: "m6 6 12 12M18 6 6 18",
   plus: "M12 5v14M5 12h14",
+  info: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM12 11v6M12 7h.01",
   external: "M14 3h7v7M21 3l-9 9M10 3H4v17h17v-6",
   shield: "m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6ZM8 12l3 3 5-6",
   folder: "M3 6h7l2 2h9v12H3Z",

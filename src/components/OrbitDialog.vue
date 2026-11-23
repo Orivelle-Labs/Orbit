@@ -16,6 +16,7 @@ const props = defineProps<{
   title: string;
   description?: string;
   wide?: boolean;
+  contentClass?: string;
 }>();
 defineEmits<{ "update:open": [value: boolean] }>();
 let previousFocus: HTMLElement | null = null;
@@ -44,7 +45,7 @@ function restoreFocus(event: Event) {
     <DialogPortal
       ><DialogOverlay class="dialog-overlay" /><DialogContent
         class="dialog-content"
-        :class="{ 'dialog-wide': wide }"
+        :class="[{ 'dialog-wide': wide }, contentClass]"
         @close-auto-focus="restoreFocus"
       >
         <div class="dialog-heading">

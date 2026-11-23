@@ -239,6 +239,11 @@ export function imageParameterLabel(value: string): string {
       ? value.toUpperCase()
       : value;
 }
+export function imageCountLabel(count: number): string {
+  return (
+    count + " " + t(count === 1 ? "images.imageUnit" : "images.imagesUnit")
+  );
+}
 export function imageFailureMessage(
   code: string,
   parameters: string[] = [],

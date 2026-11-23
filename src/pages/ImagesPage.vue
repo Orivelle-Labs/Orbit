@@ -17,16 +17,20 @@ import {
   safePreviewUrl,
   utf8Bytes,
 } from "../shared/format";
-import { t, type MessageKey } from "../shared/i18n";
+import { locale, t, type MessageKey } from "../shared/i18n";
 import OrbitIcon from "../components/OrbitIcon.vue";
 import OrbitDialog from "../components/OrbitDialog.vue";
 import OrbitSelect from "../components/OrbitSelect.vue";
+import ImageHistoryDetails from "../components/ImageHistoryDetails.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import {
   imageParameterFields,
   imageParameterLabel,
   supportedImageParameters,
   imageFailureMessage,
+  imageAdjustedLabels,
+  IMAGE_ADJUSTED_LABELS,
+  imageCountLabel,
   type ImageSelectParameter,
 } from "../shared/image-parameters";
 import {
@@ -40,6 +44,13 @@ const { prompt, modelId, inputs, mask, markup, parameters, advanced } = toRefs(
   store.imageDraft,
 );
 const enlarged = ref<HistoryImage | null>(null);
+const detailImageId = ref<string | null>(null);
+const detailImage = computed(
+  () => store.history.find((image) => image.id === detailImageId.value) ?? null,
+);
+const detailTask = computed(() =>
+  detailImage.value ? historyTask(detailImage.value) : null,
+);
 const deleteImageIds = ref<string[]>([]);
 const renamingImage = ref<HistoryImage | null>(null);
 const imageTitle = ref("");
@@ -87,16 +98,56 @@ const parameterFields = computed(() => {
     });
   return fields;
 });
-const usesApi = computed(
-  () =>
+const selectFields = computed(() =>
+  parameterFields.value.filter(
+    (field) => !["n", "background"].includes(field.key),
+  ),
+);
+const resultLimit = computed(() =>
+  parameters.value.output_format === "svg"
+    ? 1
+    : Math.max(1, constraints.value?.max_results ?? 1),
+);
+const backgroundHint = computed<MessageKey>(() => {
+  if (!["png", "webp"].includes(parameters.value.output_format ?? "png"))
+    return "images.transparentFormat";
+  if (!constraints.value?.backgrounds.includes("transparent"))
+    return "images.transparentUnavailable";
+  if (!constraints.value.backgrounds.includes("opaque"))
+    return "images.opaqueUnavailable";
+  return parameters.value.background === "transparent"
+    ? "images.transparentBackgroundHint"
+    : "images.opaqueBackgroundHint";
+});
+const canToggleBackground = computed(() =>
+  ["images.transparentBackgroundHint", "images.opaqueBackgroundHint"].includes(
+    backgroundHint.value,
+  ),
+);
+const parameterSummary = computed(() => {
+  const adjusted = new Set(
     adjustedImageParameters(
       parameters.value,
       inputs.value.length,
       prompt.value,
       !!mask.value,
       !!markup.value,
-    ).length > 0,
-);
+    ),
+  );
+  if (parameters.value.background === "transparent") adjusted.add("background");
+  const labels = Object.keys(IMAGE_ADJUSTED_LABELS)
+    .filter((key) => adjusted.has(key))
+    .flatMap((key) =>
+      key === "background"
+        ? [t("images.transparentBackground")]
+        : imageAdjustedLabels([key]),
+    );
+  return labels.length
+    ? t("images.adjustedParameters") +
+        " " +
+        labels.join(locale.value === "zh-CN" ? "、" : ", ")
+    : t("images.defaultParameters");
+});
 const customSize = computed(
   () =>
     !!parameters.value.size &&
@@ -158,6 +209,20 @@ function setStream(event: Event) {
     stream,
     partial_images: stream ? (parameters.value.partial_images ?? 1) : 0,
   };
+}
+function setBackground(event: Event) {
+  if (!canToggleBackground.value) return;
+  parameters.value = {
+    ...parameters.value,
+    background: (event.target as HTMLInputElement).checked
+      ? "transparent"
+      : "opaque",
+  };
+}
+function setResultCount(event: Event) {
+  const count = Number((event.target as HTMLInputElement).value);
+  if (Number.isInteger(count) && count >= 1 && count <= resultLimit.value)
+    parameters.value = { ...parameters.value, n: count };
 }
 function setSvgModel(event: Event) {
   const value = (event.target as HTMLInputElement).value;
@@ -316,10 +381,17 @@ function taskTone(task: TaskView) {
         ? ("warning" as const)
         : ("neutral" as const);
 }
+watch(detailImage, (image, previous) => {
+  if (image || !previous) return;
+  if (enlarged.value?.id === previous.id) enlarged.value = null;
+  if (renamingImage.value?.id === previous.id) renamingImage.value = null;
+  detailImageId.value = null;
+});
 watch(
   () => store.imageDraftScope,
   () => {
     enlarged.value = null;
+    detailImageId.value = null;
     deleteImageIds.value = [];
     renamingImage.value = null;
   },
@@ -502,13 +574,19 @@ async function edit(image: HistoryImage) {
     store.imagePreviewTaskId = null;
     tab.value = "create";
     enlarged.value = null;
+    detailImageId.value = null;
   }
 }
-function historyRequestId(image: HistoryImage) {
+function historyTask(image: HistoryImage) {
   return (
-    store.tasks.find((task) => task.id === image.task_id)?.request_id ??
-    image.id
+    store.tasks.find(
+      (task) =>
+        task.id === image.task_id && task.account_id === image.account_id,
+    ) ?? null
   );
+}
+function historyRequestId(image: HistoryImage) {
+  return historyTask(image)?.request_id ?? image.id;
 }
 function historyTitle(image: HistoryImage) {
   return image.title || historyRequestId(image);
@@ -538,6 +616,7 @@ async function deleteHistory() {
   if (result) {
     deleteImageIds.value = [];
     enlarged.value = null;
+    detailImageId.value = null;
     await store.refresh();
     store.notify(t("common.deleted"), "success");
   }
@@ -554,6 +633,12 @@ function setParameter(key: ImageSelectParameter, value: string) {
     return;
   }
   if (key === "output_format") {
+    if (!["png", "webp"].includes(value) && next.background === "transparent") {
+      if (constraints.value?.backgrounds.includes("opaque"))
+        next.background = "opaque";
+      else delete next.background;
+    }
+    if (value === "svg") next.n = 1;
     if (!["jpeg", "webp"].includes(value)) delete next.output_compression;
     if (value !== "svg") delete next.svg;
     if (value !== "gif") {
@@ -723,12 +808,8 @@ function copyLabel(image: HistoryImage) {
             <OrbitIcon name="chevron-down" :size="16" />
           </button>
           <div v-if="advanced" id="image-parameters">
-            <div v-if="parameterFields.length" class="parameter-grid">
-              <div
-                v-for="field in parameterFields"
-                :key="field.key"
-                class="field"
-              >
+            <div v-if="selectFields.length" class="parameter-grid">
+              <div v-for="field in selectFields" :key="field.key" class="field">
                 <label :for="`image-${field.key}`" class="field-label">{{
                   t(field.label)
                 }}</label>
@@ -741,7 +822,9 @@ function copyLabel(image: HistoryImage) {
                 />
               </div>
             </div>
-            <p v-else class="field-hint">{{ t("images.noAdvancedOptions") }}</p>
+            <p v-else-if="!parameterFields.length" class="field-hint">
+              {{ t("images.noAdvancedOptions") }}
+            </p>
             <p v-if="!apiCaps" class="field-hint">
               {{ t("images.apiUpgradeHint") }}
             </p>
@@ -864,12 +947,61 @@ function copyLabel(image: HistoryImage) {
                 @update:model-value="setSvgEffort"
               />
             </div>
+            <div class="image-count-control">
+              <label for="image-n" class="field-heading">
+                <span class="field-label">{{ t("images.count") }}</span>
+                <output class="image-count-value" for="image-n">{{
+                  imageCountLabel(parameters.n ?? 1)
+                }}</output>
+              </label>
+              <input
+                id="image-n"
+                class="image-count-slider"
+                type="range"
+                min="1"
+                :max="resultLimit"
+                step="1"
+                :value="parameters.n ?? 1"
+                :aria-valuetext="imageCountLabel(parameters.n ?? 1)"
+                :aria-label="t('images.count')"
+                :disabled="active || resultLimit === 1"
+                @input="setResultCount"
+              />
+              <div class="image-count-marks" aria-hidden="true">
+                <span v-for="count in resultLimit" :key="count">{{
+                  count
+                }}</span>
+              </div>
+            </div>
+            <div
+              v-if="parameterFields.some((field) => field.key === 'background')"
+              class="image-background-control"
+            >
+              <label for="image-background" class="field-heading">
+                <span class="field-label">{{
+                  t("images.transparentBackground")
+                }}</span>
+                <input
+                  id="image-background"
+                  type="checkbox"
+                  role="switch"
+                  class="image-background-switch"
+                  :checked="parameters.background === 'transparent'"
+                  :disabled="active || !canToggleBackground"
+                  aria-describedby="image-background-hint"
+                  @change="setBackground"
+                />
+              </label>
+              <p id="image-background-hint" class="field-hint">
+                {{ t(backgroundHint) }}
+              </p>
+            </div>
             <div
               v-if="
                 apiCaps?.stream &&
                 !['svg', 'gif'].includes(parameters.output_format ?? '')
               "
-              class="field"
+              class="field image-stream-control"
             >
               <label class="image-stream-toggle"
                 ><input
@@ -945,12 +1077,6 @@ function copyLabel(image: HistoryImage) {
                 </button>
               </div>
             </div>
-            <p
-              v-if="parameterFields.some((field) => field.key === 'background')"
-              class="field-hint"
-            >
-              {{ t("images.backgroundUsageHint") }}
-            </p>
           </div>
           <p v-if="parameterError" class="error-text" role="alert">
             {{ t(parameterError) }}
@@ -958,11 +1084,12 @@ function copyLabel(image: HistoryImage) {
         </section>
         <p
           v-if="model"
-          class="image-route-hint"
-          :class="{ 'image-route-api': usesApi }"
+          class="image-parameter-summary"
           role="status"
+          aria-live="polite"
         >
-          {{ t(usesApi ? "images.apiRoute" : "images.subscriptionRoute") }}
+          <OrbitIcon name="info" :size="15" />
+          <span>{{ parameterSummary }}</span>
         </p>
         <div class="image-submit-actions">
           <p
@@ -1194,9 +1321,8 @@ function copyLabel(image: HistoryImage) {
         >
           <button
             class="image-preview-button"
-            :disabled="!safePreviewUrl(image.preview_url)"
-            :aria-label="t('images.zoom')"
-            @click="enlarged = image"
+            :aria-label="t('images.viewDetails')"
+            @click="detailImageId = image.id"
           >
             <img
               v-if="safePreviewUrl(image.preview_url)"
@@ -1233,6 +1359,14 @@ function copyLabel(image: HistoryImage) {
               }}</time>
             </p>
             <div class="image-card-actions">
+              <button
+                type="button"
+                class="text-button history-details-button"
+                @click="detailImageId = image.id"
+              >
+                {{ t("images.viewDetails")
+                }}<OrbitIcon name="chevron" :size="14" />
+              </button>
               <button
                 class="icon-button"
                 :aria-label="t('action.save')"
@@ -1273,6 +1407,48 @@ function copyLabel(image: HistoryImage) {
         </article></div
     ></TabsContent>
   </TabsRoot>
+  <ImageHistoryDetails
+    :image="detailImage"
+    :task="detailTask"
+    :title="detailImage ? historyTitle(detailImage) : ''"
+    :can-rename="canPrepare && !store.busy.has('image-rename')"
+    @close="detailImageId = null"
+    @rename="rename"
+    @zoom="enlarged = $event"
+  >
+    <template v-if="detailImage" #actions>
+      <button
+        class="button secondary image-details-save"
+        :disabled="store.busy.has('save-' + detailImage.id)"
+        @click="save(detailImage)"
+      >
+        <OrbitIcon name="download" />{{ t("action.save") }}
+      </button>
+      <button
+        class="button secondary"
+        :disabled="store.busy.has('copy-' + detailImage.id)"
+        @click="copy(detailImage)"
+      >
+        <OrbitIcon name="copy" />{{ copyLabel(detailImage) }}
+      </button>
+      <button
+        class="button primary"
+        :disabled="
+          !canPrepare ||
+          !referenceAllowed(detailImage) ||
+          store.busy.has('image-reedit')
+        "
+        :title="
+          !referenceAllowed(detailImage)
+            ? t('images.rasterReferenceOnly')
+            : t('action.edit')
+        "
+        @click="edit(detailImage)"
+      >
+        <OrbitIcon name="image-plus" />{{ t("action.edit") }}
+      </button>
+    </template>
+  </ImageHistoryDetails>
   <OrbitDialog
     :open="enlarged !== null"
     :title="t('images.zoom')"
