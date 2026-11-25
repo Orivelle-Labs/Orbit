@@ -39,6 +39,7 @@ import {
   adjustedImageParameters,
 } from "../shared/image-api";
 const store = useOrbitStore();
+const composer = ref<HTMLFormElement | null>(null);
 const tab = ref("create");
 const { prompt, modelId, inputs, mask, markup, parameters, advanced } = toRefs(
   store.imageDraft,
@@ -502,6 +503,12 @@ async function submit() {
   const connection = store.activeConnection;
   const captured = store.scope;
   if (!connection || !canSubmit.value) return;
+  composer.value?.closest(".main-shell")?.scrollTo({
+    top: 0,
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth",
+  });
   const result = await store.perform("image-submit", "create_image_task", {
     connection_id: connection.id,
     expected_revision: connection.revision,
@@ -692,7 +699,7 @@ function copyLabel(image: HistoryImage) {
       ></TabsList
     >
     <TabsContent value="create" class="image-workbench"
-      ><form class="image-composer" @submit.prevent="submit">
+      ><form ref="composer" class="image-composer" @submit.prevent="submit">
         <div class="composer-connection">
           <span
             class="connection-dot"
