@@ -186,6 +186,13 @@ pub struct PriceView {
     pub rates: Vec<PriceRate>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImagePricingProfile {
+    pub scenario: String,
+    pub configured: bool,
+    pub image_billing_mode: Option<String>,
+    pub pricing: Option<PriceView>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageParameterConstraints {
     pub max_results: u8,
     pub max_inputs: u8,
@@ -303,6 +310,8 @@ pub struct ModelView {
     pub capabilities: Vec<String>,
     pub execution_profile: Option<String>,
     pub image_billing_mode: Option<String>,
+    #[serde(default)]
+    pub image_pricing: Option<Vec<ImagePricingProfile>>,
     pub reasoning_efforts: Vec<String>,
     #[serde(default)]
     pub reasoning: Option<ReasoningPolicyView>,

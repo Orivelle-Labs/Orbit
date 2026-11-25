@@ -4061,6 +4061,7 @@ impl Service {
             mask_id.is_some(),
             markup_id.is_some(),
         )?;
+        crate::image_pricing::ensure_available(model, api)?;
         let capability = if input_ids.is_empty() {
             "openai.images.generations"
         } else {
@@ -4220,6 +4221,7 @@ impl Service {
                     "image_routing_upgrade_required",
                     "image_parameters_unavailable",
                     "image_api_pricing_unavailable",
+                    "pricing_unavailable",
                     "model_unavailable",
                     "insufficient_balance",
                     "api_key_spending_limit_exceeded",
@@ -5013,6 +5015,7 @@ fn map_price(value: &Value, reference: bool) -> Result<Option<PriceView>> {
         "partial" if reference => "partial",
         "unpriced_free" if !reference => "unpriced_free",
         "unavailable" => "unavailable",
+        "unconfigured" if !reference => "unconfigured",
         _ => "unknown",
     };
     let source = if reference {
@@ -5066,6 +5069,49 @@ fn map_price(value: &Value, reference: bool) -> Result<Option<PriceView>> {
         status: status.into(),
         rates,
     }))
+}
+fn map_image_pricing(value: &Value) -> Result<Option<Vec<ImagePricingProfile>>> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let entries = value
+        .as_array()
+        .filter(|entries| entries.len() == 2)
+        .ok_or_else(|| fail("invalid_panel_response"))?;
+    let mut profiles = Vec::with_capacity(2);
+    for scenario in ["standard", "advanced"] {
+        let matches = entries
+            .iter()
+            .filter(|entry| entry["scenario"] == scenario)
+            .collect::<Vec<_>>();
+        if matches.len() != 1 {
+            return Err(fail("invalid_panel_response"));
+        }
+        let entry = matches[0];
+        let configured = entry["configured"]
+            .as_bool()
+            .ok_or_else(|| fail("invalid_panel_response"))?;
+        let mode = nullable_text(entry, "image_billing_mode")?;
+        let pricing = map_price(&entry["pricing"], false)?;
+        if configured {
+            if !pricing
+                .as_ref()
+                .zip(mode.as_deref())
+                .is_some_and(|(price, mode)| crate::image_pricing::valid_tariff(price, mode))
+            {
+                return Err(fail("invalid_panel_response"));
+            }
+        } else if mode.is_some() || pricing.is_some() {
+            return Err(fail("invalid_panel_response"));
+        }
+        profiles.push(ImagePricingProfile {
+            scenario: scenario.into(),
+            configured,
+            image_billing_mode: mode,
+            pricing,
+        });
+    }
+    Ok(Some(profiles))
 }
 fn map_model(value: &Value, revision: &str) -> Result<ModelView> {
     let id = text(value, "id")?;
@@ -5140,6 +5186,11 @@ fn map_model(value: &Value, revision: &str) -> Result<ModelView> {
         capabilities,
         execution_profile: nullable_text(value, "execution_profile")?,
         image_billing_mode: nullable_text(value, "image_billing_mode")?,
+        image_pricing: if image {
+            map_image_pricing(&value["image_pricing"])?
+        } else {
+            None
+        },
         reasoning_efforts: efforts,
         support_status: if constraints.as_ref().is_some_and(|c| c.verified) {
             "verified"
@@ -5385,6 +5436,7 @@ mod tests {
     use super::*;
     mod authorization_callback;
     mod image_live_demo;
+    mod image_pricing;
     mod image_workbench;
     #[cfg(target_os = "macos")]
     mod macos_config_roundtrip;
