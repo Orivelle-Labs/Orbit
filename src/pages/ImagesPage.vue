@@ -22,6 +22,8 @@ import OrbitIcon from "../components/OrbitIcon.vue";
 import OrbitDialog from "../components/OrbitDialog.vue";
 import OrbitSelect from "../components/OrbitSelect.vue";
 import ImageHistoryDetails from "../components/ImageHistoryDetails.vue";
+import ImagePricingSummary from "../components/ImagePricingSummary.vue";
+import { imagePriceProfiles } from "../shared/image-pricing";
 import StatusBadge from "../components/StatusBadge.vue";
 import {
   imageParameterFields,
@@ -39,6 +41,7 @@ import {
   adjustedImageParameters,
 } from "../shared/image-api";
 const store = useOrbitStore();
+const composer = ref<HTMLFormElement | null>(null);
 const tab = ref("create");
 const { prompt, modelId, inputs, mask, markup, parameters, advanced } = toRefs(
   store.imageDraft,
@@ -124,30 +127,47 @@ const canToggleBackground = computed(() =>
     backgroundHint.value,
   ),
 );
-const parameterSummary = computed(() => {
-  const adjusted = new Set(
-    adjustedImageParameters(
-      parameters.value,
-      inputs.value.length,
-      prompt.value,
-      !!mask.value,
-      !!markup.value,
-    ),
-  );
+const adjustedParameters = computed(() =>
+  adjustedImageParameters(
+    parameters.value,
+    inputs.value.length,
+    prompt.value,
+    !!mask.value,
+    !!markup.value,
+  ),
+);
+const pricingScenario = computed(() =>
+  adjustedParameters.value.length
+    ? ("advanced" as const)
+    : ("standard" as const),
+);
+const priceUnavailable = computed(
+  () =>
+    imagePriceProfiles(model.value).find(
+      (profile) => profile.scenario === pricingScenario.value,
+    )?.status === "unconfigured",
+);
+const parameterLabels = computed(() => {
+  const adjusted = new Set(adjustedParameters.value);
   if (parameters.value.background === "transparent") adjusted.add("background");
-  const labels = Object.keys(IMAGE_ADJUSTED_LABELS)
+  return Object.keys(IMAGE_ADJUSTED_LABELS)
     .filter((key) => adjusted.has(key))
     .flatMap((key) =>
       key === "background"
         ? [t("images.transparentBackground")]
         : imageAdjustedLabels([key]),
     );
-  return labels.length
-    ? t("images.adjustedParameters") +
-        " " +
-        labels.join(locale.value === "zh-CN" ? "、" : ", ")
-    : t("images.defaultParameters");
 });
+const parameterSummaryShort = computed(() =>
+  parameterLabels.value.length
+    ? parameterLabels.value.join(locale.value === "zh-CN" ? "、" : ", ")
+    : t("images.defaultParametersShort"),
+);
+const parameterSummary = computed(() =>
+  parameterLabels.value.length
+    ? t("images.adjustedParameters") + " " + parameterSummaryShort.value
+    : t("images.defaultParameters"),
+);
 const customSize = computed(
   () =>
     !!parameters.value.size &&
@@ -327,6 +347,7 @@ const submitReason = computed<MessageKey | null>(() => {
   if (store.modelsLoading) return "access.waitModels";
   if (!store.imageModels.length) return "images.noModels";
   if (!model.value) return "images.chooseModel";
+  if (priceUnavailable.value) return "images.priceUnavailable";
   if (!prompt.value.trim()) return "images.enterPrompt";
   if (promptBytes.value > promptLimit.value) return "images.fixPrompt";
   if (parameterError.value) return "images.fixParameters";
@@ -502,6 +523,12 @@ async function submit() {
   const connection = store.activeConnection;
   const captured = store.scope;
   if (!connection || !canSubmit.value) return;
+  composer.value?.closest(".main-shell")?.scrollTo({
+    top: 0,
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth",
+  });
   const result = await store.perform("image-submit", "create_image_task", {
     connection_id: connection.id,
     expected_revision: connection.revision,
@@ -692,7 +719,7 @@ function copyLabel(image: HistoryImage) {
       ></TabsList
     >
     <TabsContent value="create" class="image-workbench"
-      ><form class="image-composer" @submit.prevent="submit">
+      ><form ref="composer" class="image-composer" @submit.prevent="submit">
         <div class="composer-connection">
           <span
             class="connection-dot"
@@ -798,6 +825,7 @@ function copyLabel(image: HistoryImage) {
           <button
             type="button"
             class="advanced-trigger"
+            :aria-label="t('images.params')"
             :aria-expanded="advanced"
             aria-controls="image-parameters"
             :disabled="active"
@@ -805,6 +833,9 @@ function copyLabel(image: HistoryImage) {
           >
             <OrbitIcon name="settings" :size="17" />
             {{ t("images.params") }}
+            <span class="image-parameter-summary" :title="parameterSummary">{{
+              parameterSummaryShort
+            }}</span>
             <OrbitIcon name="chevron-down" :size="16" />
           </button>
           <div v-if="advanced" id="image-parameters">
@@ -1082,15 +1113,12 @@ function copyLabel(image: HistoryImage) {
             {{ t(parameterError) }}
           </p>
         </section>
-        <p
+        <ImagePricingSummary
           v-if="model"
-          class="image-parameter-summary"
-          role="status"
-          aria-live="polite"
-        >
-          <OrbitIcon name="info" :size="15" />
-          <span>{{ parameterSummary }}</span>
-        </p>
+          :model="model"
+          :scenario="pricingScenario"
+          :count="parameters.n ?? 1"
+        />
         <div class="image-submit-actions">
           <p
             v-if="submitReason"

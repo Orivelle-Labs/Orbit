@@ -256,6 +256,7 @@ export function imageFailureMessage(
   }
   const keys: Partial<Record<string, MessageKey>> = {
     image_api_pricing_unavailable: "images.priceUnavailable",
+    pricing_unavailable: "images.priceUnavailable",
     image_routing_upgrade_required: "images.errorUpgrade",
     invalid_image_material: "images.invalidMaterial",
     unsafe_image_content: "images.unsafeContent",

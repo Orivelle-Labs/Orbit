@@ -35,6 +35,7 @@ impl PublicError {
             "image_request_timeout" => "等待图片结果超时，请先核对任务状态，勿自动重新生成。",
             "image_parameters_unavailable" => "当前服务尚未配置本次所需的高级图片功能。",
             "image_api_pricing_unavailable" => "高级图片销售价格尚未配置完整，请联系管理员。",
+            "pricing_unavailable" => "当前参数对应的图片价格尚未配置完整，请调整参数或联系管理员。",
             "image_limit_exceeded" => "图片、像素或完整请求超过资源上限。",
             "image_access_denied" => "当前账户无权使用此图片模型或操作。",
             "image_rate_limited" => "图片请求已达到额度或频率限制，请稍后查看额度状态。",

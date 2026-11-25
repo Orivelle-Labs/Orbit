@@ -49,9 +49,7 @@ test("API catalog exposes advanced controls inside the collapsed section without
   await fixture(page, { models: [model] });
   await page.goto("/#/images");
   await choose(page, "image-model", "synthetic-image");
-  await expect(page.locator(".image-parameter-summary")).toHaveText(
-    "使用默认图像参数",
-  );
+  await expect(page.locator(".image-parameter-summary")).toHaveText("默认");
   const advanced = page.getByRole("button", { name: "高级选项" });
   await expect(advanced).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator("#image-parameters")).toHaveCount(0);
@@ -82,9 +80,7 @@ test("API catalog exposes advanced controls inside the collapsed section without
     "流式预览",
   );
   await page.locator("#image-stream").uncheck();
-  await expect(page.locator(".image-parameter-summary")).toHaveText(
-    "已调整图像参数： 透明背景",
-  );
+  await expect(page.locator(".image-parameter-summary")).toHaveText("透明背景");
   await page.locator(".parameter-details").screenshot({
     path: ".cache/evidence/images-api-options.png",
   });
@@ -154,9 +150,7 @@ test("Unicode prompt counts keep the subscription byte boundary and API characte
   await choose(page, "image-model", "synthetic-image");
   const prompt = page.locator("#image-prompt");
   await prompt.fill("中".repeat(10000));
-  await expect(page.locator(".image-parameter-summary")).toHaveText(
-    "使用默认图像参数",
-  );
+  await expect(page.locator(".image-parameter-summary")).toHaveText("默认");
   await prompt.fill("中".repeat(10923));
   await expect(page.locator(".image-parameter-summary")).toContainText(
     "提示词",
@@ -196,9 +190,7 @@ test("editing selects scoped PNG mask or markup and clears it when the reference
   await expect(page.locator(".image-materials")).not.toContainText("mask.png");
   await page.locator(".input-images .icon-button").click();
   await expect(page.locator(".image-materials")).toHaveCount(0);
-  await expect(page.locator(".image-parameter-summary")).toHaveText(
-    "使用默认图像参数",
-  );
+  await expect(page.locator(".image-parameter-summary")).toHaveText("默认");
   await page.getByRole("button", { name: "添加参考图", exact: true }).click();
   await page.getByRole("button", { name: "选择标注 PNG" }).click();
   await page.getByRole("button", { name: "高级选项" }).click();

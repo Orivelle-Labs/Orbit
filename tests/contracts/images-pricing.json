@@ -1,0 +1,59 @@
+{
+  "profiles": [
+    {
+      "scenario": "standard",
+      "configured": true,
+      "image_billing_mode": "image_count",
+      "pricing": {
+        "currency": "USD",
+        "source": "platform_model",
+        "billing_mode": "platform",
+        "status": "configured",
+        "policy": {},
+        "meters": [
+          { "meter": "image", "unit_size": 1, "unit_price": "0.080000000000" }
+        ]
+      }
+    },
+    {
+      "scenario": "advanced",
+      "configured": true,
+      "image_billing_mode": "image_tokens_v1",
+      "pricing": {
+        "currency": "USD",
+        "source": "dedicated_group_model",
+        "billing_mode": "custom",
+        "image_billing_mode": "image_tokens_v1",
+        "status": "configured",
+        "policy": {},
+        "meters": [
+          {
+            "meter": "text_input",
+            "unit_size": 1000000,
+            "unit_price": "1.200000000000"
+          },
+          {
+            "meter": "cached_text_input",
+            "unit_size": 1000000,
+            "unit_price": "0.300000000000"
+          },
+          {
+            "meter": "image_input",
+            "unit_size": 1000000,
+            "unit_price": "2.400000000000"
+          },
+          {
+            "meter": "cached_image_input",
+            "unit_size": 1000000,
+            "unit_price": "0.600000000000"
+          },
+          {
+            "meter": "image_output",
+            "unit_size": 1000000,
+            "unit_price": "9.600000000000"
+          }
+        ]
+      }
+    }
+  ]
+}

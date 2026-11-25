@@ -74,12 +74,25 @@ export type PriceView = {
     | "operator_estimate"
     | "unknown";
   status:
-    "configured" | "partial" | "unpriced_free" | "unavailable" | "unknown";
+    | "configured"
+    | "partial"
+    | "unpriced_free"
+    | "unconfigured"
+    | "unavailable"
+    | "unknown";
   rates: {
     meter: PricingMeter;
     unit_size: number;
     unit_price: string | null;
   }[];
+};
+export type ImagePricingScenario = "standard" | "advanced";
+export type ImageBillingMode = "image_count" | "image_tokens_v1";
+export type ImagePricingProfile = {
+  scenario: ImagePricingScenario;
+  configured: boolean;
+  image_billing_mode: ImageBillingMode | null;
+  pricing: PriceView | null;
 };
 export type ImageParameterConstraints = {
   max_results: number;
@@ -238,6 +251,7 @@ export type ModelView = {
   capabilities: string[];
   execution_profile: string | null;
   image_billing_mode: "image_count" | "image_tokens_v1" | null;
+  image_pricing?: ImagePricingProfile[] | null;
   reasoning_efforts: string[];
   reasoning: ModelReasoning | null;
   codex_catalog_binding: CodexCatalogBinding | null;
