@@ -888,6 +888,7 @@ pub fn generation_failure(status: u16, bytes: &[u8]) -> crate::error::PublicErro
                 | "image_routing_upgrade_required"
                 | "image_parameters_unavailable"
                 | "image_api_pricing_unavailable"
+                | "pricing_unavailable"
                 | "model_unavailable"
                 | "insufficient_balance"
                 | "api_key_spending_limit_exceeded"

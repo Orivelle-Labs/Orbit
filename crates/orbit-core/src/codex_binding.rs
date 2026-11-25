@@ -432,6 +432,7 @@ mod tests {
             capabilities: vec!["openai.responses".into()],
             execution_profile: None,
             image_billing_mode: None,
+            image_pricing: None,
             reasoning_efforts: policy().supported_efforts,
             reasoning: Some(policy()),
             codex_catalog_binding: serde_json::from_value(declaration(template)).unwrap(),
