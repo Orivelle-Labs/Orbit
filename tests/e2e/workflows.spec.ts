@@ -567,9 +567,10 @@ test("image background defaults to opaque and is submitted while advanced option
   await fixture(page);
   await page.goto("/#/images");
   await choose(page, "image-model", "synthetic-image");
-  const advanced = page.getByRole("button", { name: "高级选项" });
+  const advanced = page.getByRole("button", { name: "高级选项", exact: true });
   await expect(advanced).toHaveAttribute("aria-expanded", "false");
-  await expect(page.locator(".parameter-details")).toHaveText("高级选项");
+  await expect(advanced.locator(".image-parameter-summary")).toHaveText("默认");
+  await expect(page.locator("#image-parameters")).toHaveCount(0);
   await advanced.click();
   await expect(page.locator("#image-background")).not.toBeChecked();
   await expect(page.locator(".parameter-details > .field-hint")).toHaveCount(0);
@@ -579,7 +580,8 @@ test("image background defaults to opaque and is submitted while advanced option
   );
   await advanced.click();
   await expect(advanced).toHaveAttribute("aria-expanded", "false");
-  await expect(page.locator(".parameter-details")).toHaveText("高级选项");
+  await expect(advanced.locator(".image-parameter-summary")).toHaveText("默认");
+  await expect(page.locator("#image-parameters")).toHaveCount(0);
   await page
     .locator("#image-prompt")
     .fill("Synthetic opaque background request");
