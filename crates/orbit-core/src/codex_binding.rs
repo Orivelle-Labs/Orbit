@@ -158,6 +158,7 @@ pub struct ScopeContext<'a> {
     pub authorization_epoch: u64,
     pub credential_revision: &'a str,
     pub node_id: &'a str,
+    /// Legacy credential namespace, authenticated for snapshot compatibility only.
     pub provider_id: &'a str,
     pub catalog_revision: &'a str,
 }
@@ -171,7 +172,7 @@ pub struct CatalogScope<'a> {
 pub struct PlannedCatalog {
     catalog: CompiledCatalog,
     scope_revision: String,
-    default_reasoning_effort: String,
+    default_reasoning_effort: Option<String>,
 }
 impl PlannedCatalog {
     pub fn catalog(&self) -> &CompiledCatalog {
@@ -180,8 +181,8 @@ impl PlannedCatalog {
     pub fn scope_revision(&self) -> &str {
         &self.scope_revision
     }
-    pub fn default_reasoning_effort(&self) -> &str {
-        &self.default_reasoning_effort
+    pub fn default_reasoning_effort(&self) -> Option<&str> {
+        self.default_reasoning_effort.as_deref()
     }
 }
 
@@ -210,6 +211,7 @@ fn mapping<'a>(
     template: &'a str,
     efforts: &'a [&'a str],
     default: Option<&'a str>,
+    responses_compatible: bool,
 ) -> ModelMapping<'a> {
     ModelMapping {
         alias,
@@ -217,14 +219,14 @@ fn mapping<'a>(
         template_slug: template,
         purpose: ModelPurpose::Main,
         auxiliary_aliases: &[],
-        reasoning: Some(ReasoningConstraint {
+        reasoning: (!responses_compatible).then_some(ReasoningConstraint {
             allowed_efforts: efforts,
             default_effort: default,
         }),
     }
 }
 
-/// Preserve Panel order and include every compatible explicit main binding in
+/// Preserve Panel order and include every compatible Responses model in
 /// the supplied scope. Unknown/incompatible entries are omitted; the selected
 /// default must remain eligible. Limits reject the whole plan, never truncate.
 pub fn compile_scope(scope: &CatalogScope<'_>, selected: &str) -> Result<PlannedCatalog> {
@@ -256,8 +258,8 @@ pub fn compile_scope(scope: &CatalogScope<'_>, selected: &str) -> Result<Planned
         .models
         .iter()
         .filter(|model| {
-            model.provider_id == context.provider_id
-                && model.category == "text"
+            model.category == "text"
+                && model.support_status != "unsupported"
                 && model
                     .capabilities
                     .iter()
@@ -285,18 +287,41 @@ pub fn compile_scope(scope: &CatalogScope<'_>, selected: &str) -> Result<Planned
             continue;
         }
         authorized.push(model.id.as_str());
-        let Some(template) = model
+        let responses_compatible = model.codex_catalog_binding.is_none();
+        let template = if responses_compatible {
+            // This supplies the pinned client schema, not upstream capabilities.
+            "gpt-5.5"
+        } else if let Some(template) = model
             .codex_catalog_binding
             .as_ref()
             .and_then(binding_template)
-        else {
+        {
+            template
+        } else {
             continue;
         };
-        let Some((policy, efforts)) = model
+        let Some(policy) = model
             .reasoning
             .as_ref()
-            .and_then(|policy| effective_efforts(policy).map(|efforts| (policy, efforts)))
+            .filter(|policy| policy_valid(policy))
         else {
+            if model.id == selected || selected.is_empty() {
+                selected_error = "codex_reasoning_unavailable";
+            }
+            continue;
+        };
+        let efforts = if let Some(efforts) = effective_efforts(policy) {
+            if efforts.is_empty() && responses_compatible {
+                if model.id == selected || selected.is_empty() {
+                    selected_error = "codex_reasoning_unavailable";
+                }
+                continue;
+            }
+            efforts
+        } else if responses_compatible {
+            // No reasoning declaration means no reasoning parameter or selector.
+            vec![]
+        } else {
             if model.id == selected || selected.is_empty() {
                 selected_error = "codex_reasoning_unavailable";
             }
@@ -304,26 +329,39 @@ pub fn compile_scope(scope: &CatalogScope<'_>, selected: &str) -> Result<Planned
         };
         // This is an explicit local setting constrained by both declarations;
         // a missing upstream default does not imply missing model support.
-        let default = match codex_catalog::configured_default(
-            template,
-            &efforts,
-            policy.default_effort.as_deref(),
-        ) {
-            Ok(default) => default,
-            Err(error)
-                if error.code == "codex_catalog_reasoning_invalid" && model.id != selected =>
-            {
-                selected_error = "codex_catalog_reasoning_invalid";
-                continue;
-            }
-            Err(error) => return Err(error),
+        let default = if responses_compatible {
+            policy
+                .default_effort
+                .as_deref()
+                .filter(|effort| efforts.contains(effort))
+                .or_else(|| efforts.first().copied())
+                .map(str::to_owned)
+        } else {
+            Some(
+                match codex_catalog::configured_default(
+                    template,
+                    &efforts,
+                    policy.default_effort.as_deref(),
+                ) {
+                    Ok(default) => default,
+                    Err(error)
+                        if error.code == "codex_catalog_reasoning_invalid"
+                            && model.id != selected =>
+                    {
+                        selected_error = "codex_catalog_reasoning_invalid";
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                },
+            )
         };
         let entry = [mapping(
             &model.id,
             &model.label,
             template,
             &efforts,
-            Some(&default),
+            default.as_deref(),
+            responses_compatible,
         )];
         let one = codex_catalog::compile(&CatalogPlan {
             runtime_cli_version: codex_catalog::SUPPORTED_CLI_VERSION,
@@ -333,17 +371,10 @@ pub fn compile_scope(scope: &CatalogScope<'_>, selected: &str) -> Result<Planned
             default_alias: &model.id,
         });
         match one {
-            Ok(one) => {
+            Ok(_) => {
                 if model.id == default_alias || default_alias.is_empty() {
                     default_alias = &model.id;
-                    let output: Value = serde_json::from_slice(one.bytes())
-                        .map_err(|_| fail("codex_catalog_source_unverified"))?;
-                    selected_default = Some(
-                        output["models"][0]["default_reasoning_level"]
-                            .as_str()
-                            .ok_or_else(|| fail("codex_catalog_reasoning_invalid"))?
-                            .to_owned(),
-                    );
+                    selected_default = Some(default.clone());
                 }
             }
             Err(error) if error.code == "codex_catalog_reasoning_invalid" => {
@@ -360,6 +391,11 @@ pub fn compile_scope(scope: &CatalogScope<'_>, selected: &str) -> Result<Planned
             efforts,
             default,
             model.label.as_str(),
+            responses_compatible,
+            model
+                .capabilities
+                .iter()
+                .any(|capability| capability == "vision"),
         ));
         if prepared.len() > codex_catalog::MAX_MODELS {
             return Err(fail("codex_catalog_limit_exceeded"));
@@ -368,9 +404,30 @@ pub fn compile_scope(scope: &CatalogScope<'_>, selected: &str) -> Result<Planned
     let default_reasoning_effort = selected_default.ok_or_else(|| fail(selected_error))?;
     let mappings: Vec<_> = prepared
         .iter()
-        .map(|(alias, template, efforts, default, label)| {
-            mapping(alias, label, template, efforts, Some(default))
-        })
+        .map(
+            |(alias, template, efforts, default, label, compatible, _)| {
+                mapping(
+                    alias,
+                    label,
+                    template,
+                    efforts,
+                    default.as_deref(),
+                    *compatible,
+                )
+            },
+        )
+        .collect();
+    let responses_models: Vec<_> = prepared
+        .iter()
+        .filter(|(_, _, _, _, _, compatible, _)| *compatible)
+        .map(
+            |(alias, _, efforts, default, _, _, vision)| codex_catalog::ResponsesModel {
+                alias,
+                efforts,
+                default_effort: default.as_deref(),
+                vision: *vision,
+            },
+        )
         .collect();
     let catalog = codex_catalog::compile(&CatalogPlan {
         runtime_cli_version: codex_catalog::SUPPORTED_CLI_VERSION,
@@ -378,7 +435,8 @@ pub fn compile_scope(scope: &CatalogScope<'_>, selected: &str) -> Result<Planned
         authorized_aliases: &authorized,
         mappings: &mappings,
         default_alias,
-    })?;
+    })?
+    .with_responses_models(&responses_models)?;
     let inputs: Vec<_> = scoped.iter().map(|model| json!({
         "alias": model.id, "provider_id": model.provider_id,
         "category": model.category, "capabilities": model.capabilities, "revision": model.revision,
@@ -547,7 +605,8 @@ mod tests {
         policy.allowed_efforts = Some(vec!["xhigh".into(), "low".into()]);
         policy.default_effort = Some("xhigh".into());
         let mut unbound = model("unbound", "gpt-5.5");
-        unbound.codex_catalog_binding = None;
+        unbound.codex_catalog_binding =
+            Some(CodexCatalogBindingView::Unavailable { verified: false });
         let mut other = model("other", "gpt-5.5");
         other.provider_id = "other".into();
         let mut image = model("image", "gpt-5.5");
@@ -555,10 +614,10 @@ mod tests {
         let models = [first, unbound, other, image, model("last", "gpt-5.5")];
         let planned = compile_scope(&scope(&models), "last").unwrap();
         let output: Value = serde_json::from_slice(planned.catalog().bytes()).unwrap();
-        assert_eq!(planned.catalog().main_aliases(), ["first", "last"]);
+        assert_eq!(planned.catalog().main_aliases(), ["first", "other", "last"]);
         assert!(planned.catalog().auxiliary_aliases().is_empty());
         assert_eq!(planned.catalog().default_alias(), "last");
-        assert_eq!(planned.default_reasoning_effort(), "medium");
+        assert_eq!(planned.default_reasoning_effort(), Some("medium"));
         assert_eq!(output["models"][0]["default_reasoning_level"], "xhigh");
         assert_eq!(
             output["models"][0]["supported_reasoning_levels"]
@@ -570,7 +629,96 @@ mod tests {
             ["low", "xhigh"]
         );
         assert_eq!(code(&models, "unbound"), "codex_binding_unavailable");
-        assert_eq!(code(&models, "other"), "codex_binding_unavailable");
+        assert_eq!(
+            compile_scope(&scope(&models), "other")
+                .unwrap()
+                .catalog()
+                .default_alias(),
+            "other"
+        );
+    }
+
+    #[test]
+    fn responses_catalog_uses_authorized_protocols_across_providers_without_template_declarations()
+    {
+        let mut deepseek = model("custom/deepseek", "gpt-5.5");
+        deepseek.provider_id = "deepseek".into();
+        deepseek.codex_catalog_binding = None;
+        let mut anthropic = deepseek.clone();
+        anthropic.id = "custom/claude".into();
+        anthropic.provider_id = "anthropic".into();
+        anthropic.capabilities.push("vision".into());
+        let mut chat_only = deepseek.clone();
+        chat_only.id = "chat-only".into();
+        chat_only.capabilities = vec!["openai.chat_completions".into()];
+        let mut unsupported = deepseek.clone();
+        unsupported.id = "unsupported".into();
+        unsupported.support_status = "unsupported".into();
+        let models = [deepseek, anthropic, chat_only, unsupported];
+        let planned = compile_scope(&scope(&models), "custom/deepseek").unwrap();
+        assert_eq!(
+            planned.catalog().main_aliases(),
+            ["custom/deepseek", "custom/claude"]
+        );
+        let output: Value = serde_json::from_slice(planned.catalog().bytes()).unwrap();
+        for entry in output["models"].as_array().unwrap() {
+            assert_eq!(entry["prefer_websockets"], false);
+            assert_eq!(entry["support_verbosity"], false);
+            assert_eq!(entry["supports_search_tool"], false);
+            assert!(entry["context_window"].is_null());
+            assert_eq!(entry["service_tiers"], json!([]));
+            assert!(entry["apply_patch_tool_type"].is_null());
+        }
+        assert_eq!(output["models"][0]["input_modalities"], json!(["text"]));
+        assert_eq!(
+            output["models"][1]["input_modalities"],
+            json!(["text", "image"])
+        );
+        assert!(compile_scope(&scope(&models), "chat-only").is_err());
+        assert!(compile_scope(&scope(&models), "unsupported").is_err());
+        assert!(compile_scope(&scope(&models[1..]), "custom/deepseek").is_err());
+    }
+
+    #[test]
+    fn responses_models_without_reasoning_never_inherit_template_reasoning_choices() {
+        for status in ["unknown", "not_applicable"] {
+            let mut compatible = model("compatible", "gpt-5.5");
+            compatible.provider_id = "anthropic".into();
+            compatible.codex_catalog_binding = None;
+            let policy = compatible.reasoning.as_mut().unwrap();
+            policy.capability_status = status.into();
+            policy.supported_efforts.clear();
+            policy.default_effort = None;
+            let planned = compile_scope(&scope(&[compatible]), "").unwrap();
+            assert_eq!(planned.default_reasoning_effort(), None);
+            let output: Value = serde_json::from_slice(planned.catalog().bytes()).unwrap();
+            assert_eq!(output["models"][0]["supported_reasoning_levels"], json!([]));
+            assert!(output["models"][0]["default_reasoning_level"].is_null());
+        }
+    }
+
+    #[test]
+    fn responses_reasoning_preserves_model_defined_efforts_and_current_restrictions() {
+        let mut compatible = model("compatible", "gpt-5.5");
+        compatible.provider_id = "deepseek".into();
+        compatible.codex_catalog_binding = None;
+        let policy = compatible.reasoning.as_mut().unwrap();
+        policy.state = "restricted".into();
+        policy.supported_efforts = vec!["low".into(), "persistent".into(), "adaptive".into()];
+        policy.allowed_efforts = Some(vec!["persistent".into(), "adaptive".into()]);
+        policy.default_effort = Some("adaptive".into());
+        let planned = compile_scope(&scope(&[compatible]), "").unwrap();
+        assert_eq!(planned.default_reasoning_effort(), Some("adaptive"));
+        let output: Value = serde_json::from_slice(planned.catalog().bytes()).unwrap();
+        assert_eq!(
+            output["models"][0]["supported_reasoning_levels"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|level| level["effort"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["persistent", "adaptive"]
+        );
     }
 
     #[test]
@@ -640,21 +788,21 @@ mod tests {
             compile_scope(&scope(&[invalid.clone()]), "")
                 .unwrap()
                 .default_reasoning_effort(),
-            "high"
+            Some("high")
         );
         invalid.reasoning.as_mut().unwrap().default_effort = None;
         assert_eq!(
             compile_scope(&scope(&[invalid.clone()]), "")
                 .unwrap()
                 .default_reasoning_effort(),
-            "high"
+            Some("high")
         );
         invalid.reasoning.as_mut().unwrap().default_effort = Some("high".into());
         assert_eq!(
             compile_scope(&scope(&[invalid]), "invalid")
                 .unwrap()
                 .default_reasoning_effort(),
-            "high"
+            Some("high")
         );
         let mut lost_multi_agent = model("lost", "gpt-6-astra");
         let policy = lost_multi_agent.reasoning.as_mut().unwrap();
@@ -681,7 +829,7 @@ mod tests {
         unknown.reasoning = None;
         assert_eq!(code(&[unknown.clone()], ""), "codex_reasoning_unavailable");
         unknown.codex_catalog_binding = None;
-        assert_eq!(code(&[unknown.clone()], ""), "codex_binding_unavailable");
+        assert_eq!(code(&[unknown.clone()], ""), "codex_reasoning_unavailable");
         unknown.id = "invalid id".into();
         assert_eq!(code(&[unknown], ""), "codex_model_id_unsupported");
         assert_eq!(code(&[], ""), "codex_models_unavailable");

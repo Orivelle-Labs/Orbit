@@ -551,7 +551,6 @@ impl Service {
             .await?;
         if delivery.api_key_id != key.api_key_id
             || delivery.key_revision != key.key_revision
-            || delivery.provider_id != "openai"
             || !delivery.plain_text_token.starts_with("orv_sk_")
             || delivery.plain_text_token.len() > 4096
             || delivery.plain_text_token.chars().any(char::is_whitespace)
@@ -635,7 +634,7 @@ impl Service {
                 && secret.account_id == credential.account_id
                 && secret.installation_id == credential.installation_id
                 && secret.authorization_epoch == credential.authorization_epoch
-                && secret.provider_id == "openai"
+                && secret.provider_id == record.view.provider_id
                 && secret.credential_revision == credential.key_revision
                 && secret.expires_at == credential.expires_at
                 && secret.token.starts_with("orv_sk_")
@@ -685,7 +684,7 @@ impl Service {
                     origin: installation.origin.clone(),
                     account_id: record.view.account_id.clone(),
                     installation_id: installation.id.clone(),
-                    provider_id: "openai".into(),
+                    provider_id: record.view.provider_id.clone(),
                     credential_revision: delivery.key_revision.clone(),
                     token: delivery.plain_text_token,
                     expires_at,
@@ -746,7 +745,7 @@ impl Service {
                     key.expires_at = credential.expires_at;
                 } else {
                     cache.keys.push(KeyMetadata {
-                        provider_id: "openai".into(),
+                        provider_id: current.view.provider_id.clone(),
                         api_key_id: Some(request.api_key_id.clone()),
                         key_revision: Some(request.key_revision.clone()),
                         state: "active".into(),

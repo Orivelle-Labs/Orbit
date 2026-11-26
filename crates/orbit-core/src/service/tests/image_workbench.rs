@@ -236,19 +236,28 @@ async fn prepared_images_refresh_their_scope_and_preview_after_key_selection_bef
             .read_preview_asset(url::Url::parse(new_url).unwrap().path())
             .is_ok()
     );
-    let model_id = service
-        .account_cache(&record)
-        .unwrap()
+    let mut cache = service.account_cache(&record).unwrap();
+    let model = cache
         .models
-        .into_iter()
+        .iter_mut()
         .find(|model| {
             model
                 .capabilities
                 .iter()
                 .any(|capability| capability == "openai.images.edits")
         })
-        .unwrap()
-        .id;
+        .unwrap();
+    model.provider_id = "synthetic-image-provider".into();
+    let model_id = model.id.clone();
+    service
+        .store
+        .put(
+            "account-cache",
+            &record.view.id,
+            &record.view.account_id,
+            &cache,
+        )
+        .unwrap();
     // This single-threaded test examines admission before its queued worker runs.
     let task = service
         .create_image_task(

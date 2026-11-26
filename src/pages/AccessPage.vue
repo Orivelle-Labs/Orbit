@@ -99,10 +99,8 @@ function switchSnapshot(kind: ClientKind) {
   );
 }
 const claudeModels = computed(() =>
-  store.textModels.filter(
-    (model) =>
-      model.provider_id === store.activeConnection?.provider_id &&
-      model.capabilities.includes(CAPABILITIES.messages),
+  store.textModels.filter((model) =>
+    model.capabilities.includes(CAPABILITIES.messages),
   ),
 );
 const boundClaudeMapping = computed(() => {
@@ -147,10 +145,8 @@ watch(
   { immediate: true },
 );
 const codexModelsAvailable = computed(() =>
-  store.textModels.some(
-    (model) =>
-      model.provider_id === store.activeConnection?.provider_id &&
-      model.capabilities.includes(CAPABILITIES.responses),
+  store.textModels.some((model) =>
+    model.capabilities.includes(CAPABILITIES.responses),
   ),
 );
 const mappingReady = computed(() =>

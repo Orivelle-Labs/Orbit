@@ -1089,11 +1089,17 @@ async fn role_switch_displays_model_names_routes_each_alias_and_restores_origina
         .find(|model| model.id == roles.sonnet)
         .unwrap();
     original.label = names[0].into();
+    original.provider_id = "deepseek".into();
     let original = original.clone();
-    for (id, name) in [&roles.opus, &roles.haiku].into_iter().zip(&names[1..]) {
+    for ((id, name), provider) in [&roles.opus, &roles.haiku]
+        .into_iter()
+        .zip(&names[1..])
+        .zip(["anthropic", "openai"])
+    {
         let mut model = original.clone();
         model.id = id.clone();
         model.label = (*name).into();
+        model.provider_id = provider.into();
         cache.models.push(model);
     }
     f.service

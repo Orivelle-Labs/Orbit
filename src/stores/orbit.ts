@@ -453,9 +453,9 @@ export const useOrbitStore = defineStore("orbit", () => {
       });
       if (generation !== modelGeneration || capturedScope !== scope.value)
         return false;
-      models.value = result.filter(
-        (model) => model.provider_id === connection.provider_id,
-      );
+      // Panel scopes this catalog to the authenticated account and selected node.
+      // A unified key's legacy provider label does not restrict model access.
+      models.value = result;
       return true;
     } catch (error) {
       if (
