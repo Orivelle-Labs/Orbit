@@ -761,8 +761,7 @@ const zh = {
     "导出前先预览内容；报告不包含私人图片，也不会后台上传。",
   "settings.diskHint":
     "达到上限时停止接收新任务；不会自动删除你的原图。预览缓存可按限额清理。",
-  "settings.installHint":
-    "更新已下载，安装将重启 Orbit。请先完成当前任务，再确认安装。",
+  "settings.installHint": "更新已下载，安装将重启 Orbit。",
   "common.unknown": "未知",
   "common.none": "暂无",
   "common.serviceAddress": "[服务地址]",
@@ -1626,7 +1625,7 @@ const en: Record<keyof typeof zh, string> = {
   "settings.diskHint":
     "New tasks stop at the limit. Original images are not deleted automatically. Preview caches can be trimmed.",
   "settings.installHint":
-    "The update has been downloaded. Installing will restart Orbit. Finish your current tasks before confirming.",
+    "The update has been downloaded. Installing will restart Orbit.",
   "common.unknown": "Unknown",
   "common.none": "None",
   "common.serviceAddress": "[service address]",
