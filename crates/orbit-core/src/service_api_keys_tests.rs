@@ -98,7 +98,7 @@ fn selection_transport(service: &Service, keys: Vec<ApiKeyView>) {
                     "expires_at":(chrono::Utc::now()+chrono::Duration::seconds(60)).to_rfc3339()}));
             }
             if path.ends_with("/delivery") {
-                return response(json!({"provider_id":"openai","api_key_id":keys.last().unwrap().id,
+                return response(json!({"provider_id":"orivelle","api_key_id":keys.last().unwrap().id,
                     "key_revision":keys.last().unwrap().key_revision,"plain_text_token":format!("orv_sk_synthetic_{}",keys.last().unwrap().id.chars().next().unwrap()),"expires_at":null}));
             }
             let chosen = keys.iter().find(|key| path.ends_with(&key.id)).unwrap();
@@ -146,7 +146,7 @@ async fn selection_delivers_uncached_keys_without_a_metadata_probe_or_account_re
                     "expires_at":(chrono::Utc::now()+chrono::Duration::seconds(60)).to_rfc3339()}));
             }
             assert_eq!(path, "/api/v1/orbit/api-keys/delivery");
-            response(json!({"provider_id":"openai","api_key_id":key.id,
+            response(json!({"api_key_id":key.id,
                 "key_revision":key.key_revision,"plain_text_token":"orv_sk_first_delivery","expires_at":null}))
         })
     }));

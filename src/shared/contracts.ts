@@ -154,6 +154,7 @@ export type ConnectionView = {
   node_id: string | null;
   node_label: string | null;
   edge_base_url: string | null;
+  /** Legacy native credential namespace; never a model authorization scope. */
   provider_id: string;
   revision: number;
   credential_revision: string | null;
@@ -439,7 +440,7 @@ type ConfigPreviewBase = {
     bytes: number;
     aliases: string[];
     default_alias: string;
-    default_reasoning_effort: string;
+    default_reasoning_effort: string | null;
   } | null;
   codex_runtime: {
     state: "unverified" | "verified";

@@ -813,7 +813,8 @@ pub struct TokenResponse {
 }
 #[derive(Deserialize)]
 pub struct CredentialDelivery {
-    pub provider_id: String,
+    // Legacy Panel replies may include provider_id. Unified credentials are
+    // identified by their owned key ID and revision; that label is ignored.
     pub api_key_id: String,
     pub key_revision: String,
     pub plain_text_token: String,

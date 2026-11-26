@@ -91,6 +91,8 @@ struct AccountCache {
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct KeyMetadata {
+    // Preserve old serialized cache/scope bytes; this projection is not a grant.
+    #[serde(default)]
     provider_id: String,
     api_key_id: Option<String>,
     key_revision: Option<String>,
@@ -1365,6 +1367,7 @@ impl Service {
                 node_id: existing.as_ref().and_then(|r| r.view.node_id.clone()),
                 node_label: None,
                 edge_base_url: None,
+                // Serialized namespace for legacy credential bindings, not model scope.
                 provider_id: "openai".into(),
                 revision: previous_revision + 1,
                 credential_revision: None,
@@ -1452,8 +1455,7 @@ impl Service {
         {
             return Err(fail("connection_conflict"));
         }
-        if delivery.provider_id != "openai"
-            || delivery.key_revision.len() != 64
+        if delivery.key_revision.len() != 64
             || !delivery.key_revision.bytes().all(|b| b.is_ascii_hexdigit())
             || !delivery.plain_text_token.starts_with("orv_sk_")
             || delivery.plain_text_token.len() > 4096
@@ -1479,7 +1481,7 @@ impl Service {
             origin: installation.origin.clone(),
             account_id: record.view.account_id.clone(),
             installation_id: installation.id.clone(),
-            provider_id: delivery.provider_id.clone(),
+            provider_id: record.view.provider_id.clone(),
             credential_revision: delivery.key_revision.clone(),
             token: delivery.plain_text_token,
             expires_at,
@@ -1498,7 +1500,6 @@ impl Service {
         }
         record.credential_reference = Some(reference);
         record.view.credential_revision = Some(delivery.key_revision);
-        record.view.provider_id = delivery.provider_id;
         record.view.permission_state = "allowed".into();
         record.api_key_id = Some(delivery.api_key_id);
         record.credential_expires_at = expires_at;
@@ -1692,9 +1693,7 @@ impl Service {
             self.synchronize_key_credentials(record, cache)?;
         }
         let key = cache.keys.iter().find(|k| {
-            k.provider_id == record.view.provider_id
-                && k.api_key_id == record.api_key_id
-                && k.key_revision == record.view.credential_revision
+            k.api_key_id == record.api_key_id && k.key_revision == record.view.credential_revision
         });
         let ready = cache.inference_allowed
             && key.is_some_and(|k| {
@@ -2442,17 +2441,13 @@ impl Service {
             configuration_target,
         )
     }
-    fn codex_inputs(
-        &self,
-        record: &ConnectionRecord,
-        cache: &AccountCache,
-    ) -> Vec<CodexModelInput> {
+    fn codex_inputs(&self, cache: &AccountCache) -> Vec<CodexModelInput> {
         cache
             .models
             .iter()
             .filter(|model| {
-                model.provider_id == record.view.provider_id
-                    && model.category == "text"
+                model.category == "text"
+                    && model.support_status != "unsupported"
                     && model
                         .capabilities
                         .iter()
@@ -2540,7 +2535,7 @@ impl Service {
             edge_base_url: node.base_url.clone(),
             provider_id: record.view.provider_id.clone(),
             catalog_revision: cache.catalog_revision.clone(),
-            models: self.codex_inputs(record, cache),
+            models: self.codex_inputs(cache),
             profile_id: crate::codex_binding::PROFILE_ID.into(),
             source_sha256: crate::codex_catalog::SOURCE_SHA256.into(),
             scope_revision: sha256(
@@ -2551,7 +2546,7 @@ impl Service {
             catalog_size: planned.catalog().bytes().len() as u64,
             aliases: planned.catalog().main_aliases().to_vec(),
             default_alias: planned.catalog().default_alias().into(),
-            default_reasoning_effort: planned.default_reasoning_effort().into(),
+            default_reasoning_effort: planned.default_reasoning_effort().map(str::to_owned),
             catalog_path: self
                 .paths
                 .codex_catalog()
@@ -2651,7 +2646,7 @@ impl Service {
                 node.revision != context.node_revision || node.base_url != context.edge_base_url
             })
             || cache.catalog_revision != context.catalog_revision
-            || self.codex_inputs(&record, &cache) != context.models
+            || self.codex_inputs(&cache) != context.models
         {
             return Err(fail("codex_catalog_scope_changed"));
         }
@@ -3030,9 +3025,7 @@ impl Service {
         let model = cache
             .models
             .iter()
-            .find(|m| {
-                m.id == model_id && m.category == "text" && m.provider_id == record.view.provider_id
-            })
+            .find(|m| m.id == model_id && m.category == "text" && m.support_status != "unsupported")
             .ok_or_else(|| fail("model_unavailable"))?;
         let context = self.context(&record, &cache, model)?;
         let catalog_context = planned
@@ -3101,7 +3094,7 @@ impl Service {
                     .unwrap_or_else(|| planned.scope_revision().into()),
                 path: self.paths.codex_catalog().display().to_string(), bytes: planned.catalog().bytes().len() as u64,
                 aliases: planned.catalog().main_aliases().to_vec(), default_alias: planned.catalog().default_alias().into(),
-                default_reasoning_effort: planned.default_reasoning_effort().into(),
+                default_reasoning_effort: planned.default_reasoning_effort().map(str::to_owned),
             }),
             codex_runtime: observation.runtime_view.clone(),
             codex_configuration_target: configuration_target_view(&observation),
@@ -4040,7 +4033,7 @@ impl Service {
         let model = cache
             .models
             .iter()
-            .find(|m| m.id == model_id && m.provider_id == record.view.provider_id)
+            .find(|m| m.id == model_id && m.support_status != "unsupported")
             .ok_or_else(|| fail("model_unavailable"))?;
         let node_id = record
             .view
@@ -5348,7 +5341,7 @@ fn map_account_cache(value: &Value, record: &ConnectionRecord) -> Result<Account
             .iter()
             .map(|k| {
                 Ok(KeyMetadata {
-                    provider_id: text(k, "provider_id")?,
+                    provider_id: k["provider_id"].as_str().unwrap_or_default().into(),
                     api_key_id: nullable_text(k, "api_key_id")?,
                     key_revision: nullable_text(k, "key_revision")?,
                     state: text(k, "state")?,
@@ -5738,10 +5731,12 @@ mod tests {
         menu.reasoning.as_mut().unwrap().default_effort = Some("high".into());
         let mut unbound = menu.clone();
         unbound.id = "unbound-alias".into();
-        unbound.codex_catalog_binding = None;
+        unbound.codex_catalog_binding =
+            Some(CodexCatalogBindingView::Unavailable { verified: false });
         let mut foreign = menu.clone();
         foreign.id = "foreign-provider".into();
         foreign.provider_id = "anthropic".into();
+        foreign.capabilities = vec!["openai.chat_completions".into()];
         cache.models.extend([menu, unbound, foreign]);
         f.service
             .store
@@ -6082,7 +6077,7 @@ mod tests {
         let summary = preview.codex_catalog.as_ref().unwrap();
         assert_eq!(summary.aliases, [f.model.clone(), "menu-alias".into()]);
         assert_eq!(summary.default_alias, f.model);
-        assert_eq!(summary.default_reasoning_effort, "medium");
+        assert_eq!(summary.default_reasoning_effort.as_deref(), Some("medium"));
         assert!(preview.redacted_diff.contains("model_reasoning_effort"));
         assert!(preview.redacted_diff.contains("model_catalog_json"));
         assert!(!preview.redacted_diff.contains("instructions_template"));
@@ -6731,8 +6726,77 @@ mod tests {
 
     #[cfg(not(windows))]
     #[test]
+    fn cross_provider_codex_without_reasoning_applies_and_restores_without_inheriting_an_effort() {
+        let f = policy_fixture(ClientKind::Codex);
+        let original = b"model='old'\nmodel_reasoning_effort='high'\n";
+        std::fs::write(&f.service.paths.codex_config, original).unwrap();
+        let mut cache = f.service.account_cache(&f.record).unwrap();
+        let model = &mut cache.models[0];
+        model.provider_id = "anthropic".into();
+        model.codex_catalog_binding = None;
+        let policy = model.reasoning.as_mut().unwrap();
+        policy.capability_status = "not_applicable".into();
+        policy.state = "unrestricted".into();
+        policy.allowed_efforts = None;
+        policy.supported_efforts.clear();
+        policy.default_effort = None;
+        f.service
+            .store
+            .put(
+                "account-cache",
+                &f.record.view.id,
+                &f.record.view.account_id,
+                &cache,
+            )
+            .unwrap();
+        let preview = f.codex_switch_review();
+        assert!(
+            preview
+                .codex_catalog
+                .as_ref()
+                .unwrap()
+                .default_reasoning_effort
+                .is_none()
+        );
+        f.service
+            .apply_client_config(&preview.id, true, false)
+            .unwrap();
+        let saved = crate::codex_config::document(Some(
+            &std::fs::read(&f.service.paths.codex_config).unwrap(),
+        ))
+        .unwrap();
+        assert!(saved.get("model_reasoning_effort").is_none());
+        assert_eq!(
+            f.service.sync_codex_models(&f.record.view.id).unwrap(),
+            Some((false, 1))
+        );
+        let snapshot = f.service.bootstrap().unwrap().switch_snapshots.remove(0);
+        let restore = f.service.preview_restore(&snapshot.id).unwrap();
+        f.service
+            .apply_client_config(&restore.id, true, true)
+            .unwrap();
+        assert_eq!(
+            std::fs::read(&f.service.paths.codex_config).unwrap(),
+            original
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
     fn codex_catalog_sync_updates_all_aliases_and_restores_the_original_external_platform() {
         let f = policy_fixture(ClientKind::Codex);
+        let mut initial = f.service.account_cache(&f.record).unwrap();
+        initial.models[0].provider_id = "anthropic".into();
+        initial.models[0].codex_catalog_binding = None;
+        f.service
+            .store
+            .put(
+                "account-cache",
+                &f.record.view.id,
+                &f.record.view.account_id,
+                &initial,
+            )
+            .unwrap();
         let original = b"model='external/model'\nmodel_provider='external'\n[model_providers.external]\nbase_url='https://other.example/v1'\nwire_api='responses'\n";
         std::fs::write(&f.service.paths.codex_config, original).unwrap();
         let preview = f.codex_switch_review();
@@ -6766,6 +6830,8 @@ mod tests {
         let mut alias = cache.models[0].clone();
         alias.id = "gateway/custom:model@v2".into();
         alias.label = "另一个平台的模型名".into();
+        alias.provider_id = "deepseek".into();
+        alias.codex_catalog_binding = None;
         alias.revision = "new-alias".into();
         cache.models.push(alias.clone());
         cache.catalog_revision = "catalog-after-add".into();
@@ -7357,12 +7423,17 @@ mod tests {
 
     #[cfg(not(windows))]
     #[test]
-    fn codex_config_old_null_declaration_and_invalid_profile_have_no_credential_side_effects() {
-        for mode in ["old-null", "missing-profile", "malformed-profile"] {
+    fn codex_config_invalid_declaration_and_profile_have_no_credential_side_effects() {
+        for mode in [
+            "invalid-declaration",
+            "missing-profile",
+            "malformed-profile",
+        ] {
             let f = policy_fixture(ClientKind::Codex);
-            if mode == "old-null" {
+            if mode == "invalid-declaration" {
                 let mut cache = f.service.account_cache(&f.record).unwrap();
-                cache.models[0].codex_catalog_binding = None;
+                cache.models[0].codex_catalog_binding =
+                    Some(CodexCatalogBindingView::Unavailable { verified: false });
                 f.service
                     .store
                     .put(
@@ -7398,7 +7469,7 @@ mod tests {
             assert_eq!(
                 error.code,
                 match mode {
-                    "old-null" => "codex_binding_unavailable",
+                    "invalid-declaration" => "codex_binding_unavailable",
                     _ => "codex_config_override_unverified",
                 }
             );

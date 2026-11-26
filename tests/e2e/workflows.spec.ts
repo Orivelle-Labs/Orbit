@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
-import { bootstrap, task } from "../fixtures";
+import { bootstrap, syntheticCodexModel, task } from "../fixtures";
+import { CAPABILITIES } from "../../src/shared/contracts";
 import {
   calls,
   fixture,
@@ -114,6 +115,78 @@ test("real capability names populate client models and image edit options", asyn
   await expect(dialog.getByRole("button", { name: "重新检查" })).toBeEnabled();
   await expect(dialog.getByRole("button", { name: "确认接入" })).toHaveCount(0);
   expect(await calls(page, "apply_client_config")).toBe(0);
+});
+
+test("cross-provider models can be selected and confirmed using compatible protocols", async ({
+  page,
+}) => {
+  const responses = {
+    ...syntheticCodexModel(),
+    label: "DeepSeek 模型",
+    provider_id: "deepseek",
+    codex_catalog_binding: null,
+  };
+  const messages = {
+    ...syntheticCodexModel("claude-model"),
+    provider_id: "anthropic",
+    capabilities: [CAPABILITIES.messages],
+    codex_catalog_binding: null,
+  };
+  const chat = {
+    ...responses,
+    id: "chat-only",
+    label: "chat-only",
+    capabilities: ["openai.chat_completions"],
+  };
+  await fixture(page, { models: [responses, messages, chat] });
+  await page.goto("/#/access");
+  await page
+    .locator("#client-codex")
+    .getByRole("button", { name: "接入 Orbit" })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "确认接入" })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.locator("#claude-sonnet").click();
+  await expect(
+    page.getByRole("option", { name: responses.label, exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("option", { name: messages.label, exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("option", { name: chat.label, exact: true }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await choose(page, "claude-sonnet", responses.label);
+  await choose(page, "claude-opus", messages.label);
+  await choose(page, "claude-haiku", responses.label);
+  await page
+    .locator("#client-claude")
+    .getByRole("button", { name: "接入 Orbit" })
+    .click();
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { __ORBIT_TEST__: FixtureControl }).__ORBIT_TEST__
+          .lastRequests.preview_client_config,
+    ),
+  ).toMatchObject({
+    client: "claude",
+    claude_mapping: {
+      sonnet: responses.id,
+      opus: messages.id,
+      haiku: responses.id,
+    },
+  });
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "确认接入" })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(await calls(page, "apply_client_config")).toBe(2);
 });
 
 for (const platform of ["macos", "windows"] as const) {

@@ -684,7 +684,7 @@ impl Service {
         let (record, cache) = self.current_connection(id, revision)?;
         if let Some(model_mapping) = model_mapping {
             self.require_original_configuration(ClientKind::Claude)?;
-            let eligible = self.claude_inputs(&record, &cache);
+            let eligible = self.claude_inputs(&cache);
             if !model_mapping.ids().into_iter().all(|id| {
                 eligible
                     .iter()
@@ -698,8 +698,8 @@ impl Service {
             .iter()
             .find(|model| {
                 model.id == model_id
-                    && model.provider_id == record.view.provider_id
                     && model.category == "text"
+                    && model.support_status != "unsupported"
             })
             .ok_or_else(|| fail("model_unavailable"))?;
         let mut view = ConfigPreview {
@@ -750,8 +750,8 @@ impl Service {
                     .iter()
                     .find(|model| {
                         model.id == id
-                            && model.provider_id == record.view.provider_id
                             && model.category == "text"
+                            && model.support_status != "unsupported"
                     })
                     .map(|model| model.label.as_str())
                     .ok_or_else(|| fail("model_unavailable"))
@@ -1554,17 +1554,13 @@ impl Service {
         Ok(())
     }
 
-    fn claude_inputs(
-        &self,
-        record: &ConnectionRecord,
-        cache: &AccountCache,
-    ) -> Vec<ClaudeModelInput> {
+    fn claude_inputs(&self, cache: &AccountCache) -> Vec<ClaudeModelInput> {
         cache
             .models
             .iter()
             .filter(|model| {
-                model.provider_id == record.view.provider_id
-                    && model.category == "text"
+                model.category == "text"
+                    && model.support_status != "unsupported"
                     && model
                         .capabilities
                         .iter()
@@ -1606,7 +1602,7 @@ impl Service {
             .claude_endpoints
             .get(&node.id)
             .ok_or_else(|| fail("node_unavailable"))?;
-        let models = self.claude_inputs(&record, &cache);
+        let models = self.claude_inputs(&cache);
         let model = models
             .iter()
             .find(|model| model.id == selected)
@@ -1615,8 +1611,7 @@ impl Service {
             .keys
             .iter()
             .find(|key| {
-                key.provider_id == record.view.provider_id
-                    && key.api_key_id == record.api_key_id
+                key.api_key_id == record.api_key_id
                     && key.key_revision == record.view.credential_revision
             })
             .ok_or_else(|| fail("credential_missing"))?;
@@ -1670,7 +1665,7 @@ impl Service {
             .claude_endpoints
             .get(&node.id)
             .ok_or_else(|| fail("node_unavailable"))?;
-        let models = self.claude_inputs(record, cache);
+        let models = self.claude_inputs(cache);
         let model = models
             .iter()
             .find(|model| model.id == selected_model_id)
@@ -1882,8 +1877,7 @@ impl Service {
             .iter()
             .find(|node| node.id == context.node_id && node.available);
         let key = cache.keys.iter().find(|key| {
-            key.provider_id == context.provider_id
-                && key.api_key_id == context.api_key_id
+            key.api_key_id == context.api_key_id
                 && key.key_revision.as_ref() == Some(&context.credential_revision)
         });
         if record.view.panel_origin != context.panel_origin
@@ -1902,7 +1896,7 @@ impl Service {
             || cache.claude_endpoints.get(&context.node_id) != Some(&context.claude_base_url)
             || compare_catalog
                 && (cache.catalog_revision != context.catalog_revision
-                    || self.claude_inputs(&record, &cache) != context.models
+                    || self.claude_inputs(&cache) != context.models
                     || !context.models.iter().any(|model| {
                         model.id == context.selected_model_id
                             && model.revision == context.selected_model_revision

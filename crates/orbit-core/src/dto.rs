@@ -71,6 +71,7 @@ pub struct ConnectionView {
     pub node_id: Option<String>,
     pub node_label: Option<String>,
     pub edge_base_url: Option<String>,
+    /// Legacy credential namespace retained for saved bindings, never a model scope.
     pub provider_id: String,
     pub revision: u64,
     pub credential_revision: Option<String>,
@@ -574,7 +575,7 @@ pub struct CodexCatalogPreview {
     pub bytes: u64,
     pub aliases: Vec<String>,
     pub default_alias: String,
-    pub default_reasoning_effort: String,
+    pub default_reasoning_effort: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexRuntimeView {

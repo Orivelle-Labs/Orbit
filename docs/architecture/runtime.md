@@ -42,8 +42,15 @@ Panel 授权页，由系统浏览器完成用户登录/确认。原生回调严�
 节点/模型、API key 状态和权限由 Panel 刷新；客户端不从目录缓存猜测新的推理授权。
 
 登出先推进本地授权失效状态、停用 helper binding 和 Claude 映射，再尽力撤销远端会话。
-清理 vault 失败不会恢复已失效授权。helper 按 origin、安装、账户、provider、凭据 revision、
+清理 vault 失败不会恢复已失效授权。helper 按 origin、安装、账户、历史凭据命名空间、凭据 revision、
 epoch、有效期和 enabled 状态逐项匹配，不跟随当前 GUI 选择切换到其他账户。
+
+统一 Key 的模型权限以 Panel 当前账户/节点目录为准，不再按连接或 Key 的 `provider_id` 筛选。
+Codex 只取支持 `openai.responses` 的文本模型，Claude 只取支持 `anthropic.messages` 的文本模型，
+图片提交继续核对对应 Images operation。模型的 `provider_id` 是来源元数据；旧连接、Vault 与
+已认证快照中的同名字段仅为历史凭据命名空间，保留原值以读取旧数据，不限定可调用渠道。
+凭据交付不依赖此字段，Key 状态按所属账户内的 Key ID/revision 核对；历史绑定仍核对完整
+冻结引用、账户、安装、epoch 和有效期。改变默认 Key 不会改写既有绑定。
 
 ## vault、本地存储与启动恢复
 
@@ -110,13 +117,15 @@ Codex 的「确认接入」窗口打开后才请求原生检查。待确认草�
 ## Codex 与 Claude 的本地链路
 
 Codex 配置与模型目录通过同一事务发布：[catalog binding](../../crates/orbit-core/src/codex_binding.rs)
-将当前账户/节点允许的模型声明与包内受控模板结合，保留推理权限交集，并确定默认模型。
+将当前账户/节点允许的 Responses 模型编译为客户端目录，保留推理权限，并确定默认模型。
 配置只写入节点地址、目录及 helper 引用；Codex 调用 helper 取得绑定凭据后直接访问 Edge。
 目录声明、配置已保存和 `restart_required` 状态均不证明 Codex 已加载或上游请求成功。
 
 接入状态另由 `client_process` 与 `service_activation` 管理。原生后台每两秒读取当前用户的应用进程路径和启动时间，按实际选用的 helper、配置路由及文件保存时间建立持久记录；旧记录缺失时从当前接入文件迁移。旧实例或相关后台进程仍在时为「待重启」，没有新的桌面实例时为「待启动」，所有相关实例均在配置保存后启动且绑定仍有效时为「已连接」。macOS 使用 libproc，Windows 使用进程快照、进程映像路径/创建时间和桌面窗口 PID，避免把同名程序或独立 CLI 当作桌面重启。Orbit 重启后恢复检查，隐藏窗口后继续运行；配置路由更新会重新等待启动，用户偏好修改不会重置既有记录。Claude 的映射服务也须在运行。此状态不填充 `loaded_evidence` 或 `connection_evidence`，不读取 Vault、不发送验证推理请求，也不授权任何配置或凭据操作。
 
-模板身份与实际调用 ID 分开：目录 `slug` 保留 Panel 的调用别名，`display_name` 使用平台显示名；可打印 ASCII 别名允许 `/`、`:`、`@` 等字符。Panel 可为已知上游自动投影模板，也可显式声明别名的模板，Orbit 不按别名猜上游。推理能力未知时保持不可用；上游默认档位为空时，Orbit 按当前权限与模板的交集选取并明确写入本地默认值，多代理档位也不得越界。自动选择没有合格候选时分别报告声明、推理或 ID 问题。
+目录 `slug` 保留 Panel 的调用别名，`display_name` 使用平台显示名；可打印 ASCII 别名允许 `/`、`:`、`@` 等字符。当前 Panel 不再下发旧模板声明；缺少声明时，Orbit 复用包内固定版本的客户端字段结构，以 Responses 能力生成兼容目录，不按模型名猜测上游。此路径关闭 WebSocket、verbosity、并行工具、搜索、推理摘要和服务档位声明，不声称已知上游上下文窗口，不声明 Freeform patch 工具；图片输入仅随 `vision` 能力开放。推理选项和默认值仅使用当前允许的档位；声明为 unknown/not_applicable 时不生成推理选项、不写入默认推理参数，并清除已有根配置和活动 profile 的旧默认值。缺失或非法推理策略仍拒绝接入。可空字段及模型自定义推理档位遵循固定源码版本的 [Codex ModelInfo/ReasoningEffort 类型](https://github.com/openai/codex/blob/4ebc485ca321243727539187169425fcf972f2c4/codex-rs/protocol/src/openai_models.rs)。
+
+为兼容旧服务端，合法的显式模板声明仍采用原包内模板与推理权限交集；非法显式声明保持不可用，不通过兼容目录绕过。目录编译、配置确认、后台同步及 Claude 三角色映射均不比较模型来源与凭据命名空间；确认期间目录、权限、凭据或配置变化仍要求重新审阅。
 
 原生进程在启动时与此后每五分钟刷新活动账户和节点目录，窗口隐藏后继续轮询。手动刷新复用同一入口。已确认的 Codex 接入可在原节点和已绑定 Key 下更新目录，保留仍可用的默认模型。路由冲突、作用域变化、未知能力或断网会停止覆盖。
 
