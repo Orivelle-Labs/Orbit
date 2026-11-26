@@ -43,6 +43,15 @@ pub struct ReasoningConstraint<'a> {
     pub default_effort: Option<&'a str>,
 }
 
+/// Client settings for a model declaring Responses, without inheriting the
+/// upstream capabilities of an OpenAI model template.
+pub(crate) struct ResponsesModel<'a> {
+    pub alias: &'a str,
+    pub vision: bool,
+    pub efforts: &'a [&'a str],
+    pub default_effort: Option<&'a str>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ModelMapping<'a> {
     pub alias: &'a str,
@@ -76,6 +85,74 @@ pub struct CompiledCatalog {
 }
 
 impl CompiledCatalog {
+    pub(crate) fn with_responses_models(mut self, models: &[ResponsesModel<'_>]) -> Result<Self> {
+        if models.is_empty() {
+            return Ok(self);
+        }
+        let mut document: Value = serde_json::from_slice(&self.bytes)
+            .map_err(|_| fail("codex_catalog_source_unverified"))?;
+        for model in models {
+            let entry = document["models"]
+                .as_array_mut()
+                .and_then(|entries| {
+                    entries
+                        .iter_mut()
+                        .find(|entry| entry["slug"] == model.alias)
+                })
+                .and_then(Value::as_object_mut)
+                .ok_or_else(|| fail("codex_catalog_scope_invalid"))?;
+            // Retain the pinned client schema and local tool instructions, but
+            // do not inherit vendor-specific transport, context or API options.
+            for field in [
+                "context_window",
+                "max_context_window",
+                "default_verbosity",
+                "availability_nux",
+                "default_service_tier",
+                "apply_patch_tool_type",
+            ] {
+                entry.insert(field.into(), Value::Null);
+            }
+            for field in [
+                "prefer_websockets",
+                "support_verbosity",
+                "supports_image_detail_original",
+                "supports_parallel_tool_calls",
+                "supports_search_tool",
+                "supports_reasoning_summary_parameter",
+                "supports_reasoning_summaries",
+            ] {
+                entry.insert(field.into(), false.into());
+            }
+            entry.insert("description".into(), "Responses-compatible model".into());
+            entry.insert(
+                "input_modalities".into(),
+                serde_json::json!(if model.vision {
+                    vec!["text", "image"]
+                } else {
+                    vec!["text"]
+                }),
+            );
+            entry.insert("service_tiers".into(), serde_json::json!([]));
+            entry.insert("additional_speed_tiers".into(), serde_json::json!([]));
+            entry.insert(
+                "default_reasoning_level".into(),
+                model.default_effort.into(),
+            );
+            entry.insert(
+                "supported_reasoning_levels".into(),
+                model
+                    .efforts
+                    .iter()
+                    .map(|effort| serde_json::json!({"effort": effort, "description": effort}))
+                    .collect(),
+            );
+        }
+        self.bytes = serialize_bounded(&document)?;
+        self.sha256 = sha256(&self.bytes);
+        Ok(self)
+    }
+
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }

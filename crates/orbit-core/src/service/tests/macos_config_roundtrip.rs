@@ -856,7 +856,6 @@ impl NativeRun {
                 &mut self.connection,
                 &self.installation,
                 CredentialDelivery {
-                    provider_id: "openai".into(),
                     api_key_id: "01ARZ3NDEKTSV4RRFFQ69G5FAX".into(),
                     key_revision,
                     plain_text_token: random_secret("orv_sk_native_probe."),

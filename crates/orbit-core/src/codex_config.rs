@@ -149,7 +149,7 @@ pub(crate) fn patch(
     model: &str,
     helper: &Path,
     binding: &str,
-    catalog: Option<(&Path, &str)>,
+    catalog: Option<(&Path, Option<&str>)>,
 ) -> Result<Vec<u8>> {
     validate_uuid(binding)?;
     let url = url::Url::parse(base_url).map_err(|_| fail("invalid_configuration"))?;
@@ -183,9 +183,11 @@ pub(crate) fn patch(
     let mut route = vec![("model", value(model)), ("model_provider", value(&id))];
     if let Some((path, effort)) = catalog {
         if !path.is_absolute()
-            || effort.is_empty()
-            || effort.len() > 128
-            || !effort.bytes().all(|b| b.is_ascii_graphic())
+            || effort.is_some_and(|effort| {
+                effort.is_empty()
+                    || effort.len() > 128
+                    || !effort.bytes().all(|b| b.is_ascii_graphic())
+            })
         {
             return Err(fail("invalid_configuration"));
         }
@@ -193,10 +195,13 @@ pub(crate) fn patch(
             "model_catalog_json",
             value(path.to_str().ok_or_else(|| fail("invalid_path"))?),
         ));
-        route.push(("model_reasoning_effort", value(effort)));
+        route.push((
+            "model_reasoning_effort",
+            effort.map(value).unwrap_or(Item::None),
+        ));
     }
     for (key, item) in &route {
-        set_field(doc.as_table_mut(), key, Some(item));
+        set_field(doc.as_table_mut(), key, (!item.is_none()).then_some(item));
     }
     if let Some(name) = active {
         let section = doc["profiles"][&name]
@@ -204,7 +209,7 @@ pub(crate) fn patch(
             .ok_or_else(|| fail("codex_config_override_unverified"))?;
         for (key, item) in &route {
             if section.contains_key(key) {
-                set_field(section, key, Some(item));
+                set_field(section, key, (!item.is_none()).then_some(item));
             }
         }
     }
@@ -362,9 +367,39 @@ mod tests {
             "gateway/text",
             &helper,
             "be9fc769-be65-40e6-bf00-167c845f1380",
-            Some((&catalog, "high")),
+            Some((&catalog, Some("high"))),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn non_reasoning_catalog_clears_root_and_active_profile_efforts_only() {
+        let source = b"model='old'\nmodel_reasoning_effort='high'\nprofile='work'\n[profiles.work]\nmodel_reasoning_effort='low'\napproval_policy='on-request'\n[profiles.personal]\nmodel_reasoning_effort='high'\n";
+        let directory = tempfile::tempdir().unwrap();
+        let saved = patch(
+            Some(source),
+            "https://edge.example/v1",
+            "compatible-text",
+            &directory.path().join("helper"),
+            "be9fc769-be65-40e6-bf00-167c845f1380",
+            Some((&directory.path().join("catalog.json"), None)),
+        )
+        .unwrap();
+        let document = document(Some(&saved)).unwrap();
+        assert!(document.get("model_reasoning_effort").is_none());
+        assert!(
+            document["profiles"]["work"]
+                .get("model_reasoning_effort")
+                .is_none()
+        );
+        assert_eq!(
+            document["profiles"]["personal"]["model_reasoning_effort"].as_str(),
+            Some("high")
+        );
+        assert_eq!(
+            document["profiles"]["work"]["approval_policy"].as_str(),
+            Some("on-request")
+        );
     }
 
     #[test]

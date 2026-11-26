@@ -59,7 +59,7 @@ pub(crate) struct CodexContext {
     pub(crate) catalog_size: u64,
     pub(crate) aliases: Vec<String>,
     pub(crate) default_alias: String,
-    pub(crate) default_reasoning_effort: String,
+    pub(crate) default_reasoning_effort: Option<String>,
     pub(crate) catalog_path: String,
     pub(crate) config_path: String,
     // Legacy runtime-only contexts deserialize without a new receipt and fail
@@ -480,7 +480,7 @@ impl ConfigEngine<'_> {
                     || document
                         .get("model_reasoning_effort")
                         .and_then(Item::as_str)
-                        != Some(context.default_reasoning_effort.as_str())
+                        != context.default_reasoning_effort.as_deref()
                 {
                     return Err(fail("backup_invalid"));
                 }
@@ -596,7 +596,6 @@ impl ConfigEngine<'_> {
                 .filter(|model| {
                     model.id == context.selected_model_id
                         && model.revision == context.selected_model_revision
-                        && model.provider_id == context.provider_id
                 })
                 .count()
                 != 1
@@ -2337,7 +2336,7 @@ pub fn codex_catalog_patch(
     helper: &Path,
     binding: &str,
     catalog_path: &Path,
-    default_effort: &str,
+    default_effort: Option<&str>,
 ) -> Result<Vec<u8>> {
     crate::codex_config::patch(
         original,

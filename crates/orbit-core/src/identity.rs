@@ -167,6 +167,7 @@ pub struct HelperBinding {
     pub origin: String,
     pub account_id: String,
     pub installation_id: String,
+    /// Frozen legacy credential namespace, not the selected model's provider.
     pub provider_id: String,
     pub credential_revision: String,
     pub secret_reference: String,
@@ -181,6 +182,7 @@ pub struct InferenceSecret {
     pub origin: String,
     pub account_id: String,
     pub installation_id: String,
+    /// Must match the saved binding for compatibility; it grants no model scope.
     pub provider_id: String,
     pub credential_revision: String,
     pub token: String,
