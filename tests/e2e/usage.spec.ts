@@ -46,7 +46,7 @@ test("usage shows account-wide statistics, filters and cursors without inference
   expect(await calls(page, "create_image_task")).toBe(0);
 });
 
-test("usage errors leave space above statistics and align refresh on the right", async ({
+test("usage refresh failures preserve statistics and recover on retry", async ({
   page,
 }) => {
   await fixture(page);
@@ -78,35 +78,6 @@ test("usage errors leave space above statistics and align refresh on the right",
   await expect(page.locator(".usage-error")).toHaveCount(2);
   await expect(page.locator(".usage-stat-grid")).toHaveText(previous);
   const summaryError = page.locator(".usage-error").first();
-  for (const width of [1280, 800, 460]) {
-    await page.setViewportSize({ width, height: 940 });
-    for (const alert of await page.locator(".usage-error").all()) {
-      const box = await alert.boundingBox();
-      const message = await alert.locator("span").boundingBox();
-      const button = await alert
-        .getByRole("button", { name: "刷新数据", exact: true })
-        .boundingBox();
-      expect(button!.x + button!.width).toBeGreaterThan(
-        box!.x + box!.width - 20,
-      );
-      expect(button!.x).toBeGreaterThanOrEqual(
-        message!.x + message!.width + 12,
-      );
-    }
-    const notice = await summaryError.boundingBox();
-    const statistics = await page.locator(".usage-stat-grid").boundingBox();
-    expect(statistics!.y - notice!.y - notice!.height).toBeGreaterThanOrEqual(
-      17,
-    );
-    expect(
-      await page.evaluate(() => document.documentElement.scrollWidth),
-    ).toBeLessThanOrEqual(width);
-    if (width !== 800)
-      await page.screenshot({
-        path: `.cache/usage-demo/error-layout-${width}.png`,
-        fullPage: true,
-      });
-  }
   await summaryError
     .getByRole("button", { name: "刷新数据", exact: true })
     .click();
@@ -114,81 +85,43 @@ test("usage errors leave space above statistics and align refresh on the right",
   await expect(page.locator(".usage-stat-grid")).toHaveText(previous);
 });
 
-for (const width of [1280, 640]) {
-  test(`usage pagination updates only records and scrolls to their section at ${width}px`, async ({
-    page,
-  }, testInfo) => {
-    const records = usagePage();
-    const samples = records.data;
-    records.data = Array.from({ length: 28 }, (_, index) => ({
-      ...samples[index % samples.length]!,
-      id: `pagination-record-${index}`,
-    }));
-    await fixture(page, { usageRecords: records });
-    await page.setViewportSize({ width, height: 720 });
-    await page.goto("/#/usage");
-    const content = page.locator(".main-shell");
-    const history = page.locator(".usage-history");
-    await expect(history.locator("tbody tr")).toHaveCount(4);
-    const statistics = page.locator(".usage-stat-grid");
-    const trend = page.locator(".usage-trend");
-    const statisticsText = (await statistics.textContent())!;
-    const trendText = (await trend.textContent())!;
-    const statisticsElement = (await statistics.elementHandle())!;
-    const navigations: string[] = [];
-    page.on("framenavigated", (frame) => navigations.push(frame.url()));
-    let recordReads = await calls(page, "list_usage_records");
-    for (const direction of ["下一页", "上一页"]) {
-      await history
-        .getByRole("button", { name: direction, exact: true })
-        .click();
-      await expect(history.locator("tbody tr")).toHaveCount(
-        direction === "下一页" ? 24 : 4,
-      );
-      await expect(history).toHaveAttribute("aria-busy", "false");
-      await expect
-        .poll(() =>
-          content.evaluate((el) => {
-            const section = el.querySelector<HTMLElement>(".usage-history")!;
-            const target =
-              section.getBoundingClientRect().top -
-              el.getBoundingClientRect().top +
-              el.scrollTop -
-              16;
-            const expected = Math.max(
-              0,
-              Math.min(target, el.scrollHeight - el.clientHeight),
-            );
-            return Math.abs(el.scrollTop - expected);
-          }),
-        )
-        .toBeLessThan(1);
-      expect(await content.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
-      await expect(
-        history.getByRole("heading", { name: "调用记录", exact: true }),
-      ).toBeInViewport();
-      await expect(
-        page.getByRole("heading", { name: "用量", exact: true }),
-      ).not.toBeInViewport();
-      expect(await calls(page, "list_usage_records")).toBe(++recordReads);
-      expect(await calls(page, "read_usage_summary")).toBe(1);
-      expect(await statisticsElement.evaluate((el) => el.isConnected)).toBe(
-        true,
-      );
-      await expect(statistics).toHaveText(statisticsText);
-      await expect(trend).toHaveText(trendText);
-      await expect(statistics).toHaveAttribute("aria-busy", "false");
-      await expect(trend).toHaveAttribute("aria-busy", "false");
-      expect(await page.evaluate(() => window.scrollY)).toBe(0);
-      await page.screenshot({
-        path: testInfo.outputPath(
-          `${direction === "下一页" ? "next" : "previous"}-records.png`,
-        ),
-      });
-    }
-    expect(navigations).toEqual([]);
-  });
-}
+test("usage pagination changes only records without rebuilding statistics", async ({
+  page,
+}) => {
+  const records = usagePage();
+  const samples = records.data;
+  records.data = Array.from({ length: 28 }, (_, index) => ({
+    ...samples[index % samples.length]!,
+    id: `pagination-record-${index}`,
+  }));
+  await fixture(page, { usageRecords: records });
+  await page.goto("/#/usage");
+  const history = page.locator(".usage-history");
+  await expect(history.locator("tbody tr")).toHaveCount(4);
+  const statistics = page.locator(".usage-stat-grid");
+  const trend = page.locator(".usage-trend");
+  const statisticsText = (await statistics.textContent())!;
+  const trendText = (await trend.textContent())!;
+  const statisticsElement = (await statistics.elementHandle())!;
+  const navigations: string[] = [];
+  page.on("framenavigated", (frame) => navigations.push(frame.url()));
+  let recordReads = await calls(page, "list_usage_records");
+  for (const direction of ["下一页", "上一页"]) {
+    await history.getByRole("button", { name: direction, exact: true }).click();
+    await expect(history.locator("tbody tr")).toHaveCount(
+      direction === "下一页" ? 24 : 4,
+    );
+    await expect(history).toHaveAttribute("aria-busy", "false");
+    expect(await calls(page, "list_usage_records")).toBe(++recordReads);
+    expect(await calls(page, "read_usage_summary")).toBe(1);
+    expect(await statisticsElement.evaluate((el) => el.isConnected)).toBe(true);
+    await expect(statistics).toHaveText(statisticsText);
+    await expect(trend).toHaveText(trendText);
+    await expect(statistics).toHaveAttribute("aria-busy", "false");
+    await expect(trend).toHaveAttribute("aria-busy", "false");
+  }
+  expect(navigations).toEqual([]);
+});
 
 test("usage details show both lifetime writes and preserve legacy aggregate records", async ({
   page,

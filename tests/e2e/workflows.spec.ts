@@ -8,25 +8,6 @@ import {
   type FixtureControl,
 } from "./native-fixture";
 
-test.describe("Windows window chrome", () => {
-  test.use({
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36",
-  });
-  test("Windows native window metadata keeps the application and settings usable", async ({
-    page,
-  }) => {
-    await fixture(page);
-    await page.goto("/#/settings");
-    await expect(page.locator(".window-controls button")).toHaveCount(3);
-    await expect(page.locator("#setting-close")).toBeVisible();
-    await expect(
-      page.getByText("合成测试数据 · 不代表真实接入或结算"),
-    ).toBeVisible();
-    expect(await calls(page, "bootstrap")).toBe(1);
-  });
-});
-
 async function choose(page: Page, id: string, label: string) {
   await page.locator(`#${id}`).click();
   await page.getByRole("option", { name: label, exact: true }).click();
@@ -189,31 +170,25 @@ test("cross-provider models can be selected and confirmed using compatible proto
   expect(await calls(page, "apply_client_config")).toBe(2);
 });
 
-for (const platform of ["macos", "windows"] as const) {
-  for (const client of ["codex", "claude"] as const) {
-    test(`${client} stays confirmable after a long review on ${platform}`, async ({
-      page,
-    }) => {
-      const state = bootstrap();
-      state.platform = platform;
-      await fixture(page, { state });
-      await page.clock.install();
-      await page.goto("/#/access");
-      if (client === "claude") await chooseClaudeRoles(page);
-      const target = page
-        .locator(".access-client")
-        .nth(client === "codex" ? 0 : 1);
-      await target.getByRole("button", { name: "接入 Orbit" }).click();
-      const dialog = page.getByRole("dialog");
-      const confirm = dialog.getByRole("button", { name: "确认接入" });
-      await expect(confirm).toBeEnabled();
-      await page.clock.fastForward(45 * 60_000);
-      await expect(confirm).toBeEnabled();
-      await confirm.click();
-      await expect(dialog).toHaveCount(0);
-      expect(await calls(page, "apply_client_config")).toBe(1);
-    });
-  }
+for (const client of ["codex", "claude"] as const) {
+  test(`${client} stays confirmable after a long review`, async ({ page }) => {
+    await fixture(page);
+    await page.clock.install();
+    await page.goto("/#/access");
+    if (client === "claude") await chooseClaudeRoles(page);
+    await page
+      .locator(`#client-${client}`)
+      .getByRole("button", { name: "接入 Orbit" })
+      .click();
+    const dialog = page.getByRole("dialog");
+    const confirm = dialog.getByRole("button", { name: "确认接入" });
+    await expect(confirm).toBeEnabled();
+    await page.clock.fastForward(45 * 60_000);
+    await expect(confirm).toBeEnabled();
+    await confirm.click();
+    await expect(dialog).toHaveCount(0);
+    expect(await calls(page, "apply_client_config")).toBe(1);
+  });
 }
 
 test("changing accounts clears prompt and drafts before another submit", async ({

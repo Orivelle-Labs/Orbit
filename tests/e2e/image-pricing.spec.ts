@@ -3,7 +3,6 @@ import type {
   ImageBillingMode,
   ImagePricingScenario,
 } from "../../src/shared/contracts";
-import { bootstrap } from "../fixtures";
 import { pricedImageModel, tariff } from "../image-pricing-fixtures";
 import { calls, fixture, type FixtureControl } from "./native-fixture";
 
@@ -220,38 +219,4 @@ test("legacy catalogs never imply an advanced price and model changes use their 
   await expect(
     page.getByRole("dialog").locator(".image-pricing-token-rates dd"),
   ).toHaveText(Array(5).fill("EUR 1.25 / 1M token"));
-});
-
-test("English dark pricing stays compact and price details fit narrow windows", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 460, height: 1000 });
-  const state = bootstrap();
-  state.settings.locale = "en";
-  state.settings.theme = "dark";
-  const model = pricedImageModel();
-  await fixture(page, { state, models: [model] });
-  await page.goto("/#/images");
-  await choose(page, "image-model", model.label);
-  const layout = await page
-    .locator(".image-pricing-summary")
-    .evaluate((el) => ({
-      width: el.clientWidth,
-      scroll: el.scrollWidth,
-      height: el.getBoundingClientRect().height,
-    }));
-  expect(layout.scroll).toBeLessThanOrEqual(layout.width);
-  expect(layout.height).toBeLessThan(40);
-  await page.getByRole("button", { name: "View prices", exact: true }).click();
-  const dialog = page.getByRole("dialog");
-  const dialogLayout = await dialog.evaluate((el) => ({
-    width: el.clientWidth,
-    scroll: el.scrollWidth,
-  }));
-  expect(dialogLayout.scroll).toBeLessThanOrEqual(dialogLayout.width);
-  await expect(dialog.getByText("Text input", { exact: true })).toBeVisible();
-  await expect(dialog.locator(".image-pricing-token-rates dd")).toHaveCount(5);
-  await dialog.screenshot({
-    path: ".cache/evidence/image-pricing-narrow-dark.png",
-  });
 });

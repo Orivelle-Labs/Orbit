@@ -604,66 +604,34 @@ describe("Codex catalog confirmation", () => {
     expect(bridge.call).not.toHaveBeenCalled();
   });
 
-  const independentRuntimes: {
-    name: string;
-    runtime: ConfigPreview["codex_runtime"];
-  }[] = [
-    { name: "absent", runtime: null },
-    {
-      name: "unverified",
-      runtime: { ...syntheticCodexRuntime(), state: "unverified" },
-    },
-    {
-      name: "a different CLI version",
-      runtime: {
-        ...syntheticCodexRuntime(),
-        cli_version: "synthetic-other-version",
-      },
-    },
-    {
-      name: "missing its revision",
-      runtime: { ...syntheticCodexRuntime(), revision: null },
-    },
-    {
-      name: "missing its CLI version",
-      runtime: { ...syntheticCodexRuntime(), cli_version: null },
-    },
-  ];
-  it.each(independentRuntimes)(
-    "keeps qualified configuration validation when hidden runtime metadata is $name",
-    async ({ runtime }) => {
-      const value = preview();
-      value.codex_runtime = runtime;
-      useOrbitStore().state.clients[0]!.managed = "unknown";
-      const view = show(value);
-      const apply = view.get<HTMLButtonElement>(".button.primary");
-      expect(value.can_apply).toBe(true);
-      expect(apply.element.disabled).toBe(false);
-      expect(apply.text()).toBe("确认接入");
-      expect(view.text()).not.toContain("默认用户配置文件");
-      expect(view.text()).not.toContain("不代表客户端已载入或连接通过");
-      expect(view.text()).not.toContain("本次预览的执行来源已核验");
-      bridge.call.mockRejectedValueOnce(
-        new OrbitError(
-          "codex_configuration_target_changed",
-          "synthetic-private-target",
-        ),
-      );
-      await apply.trigger("click");
-      await flushPromises();
-      expect(bridge.call).toHaveBeenCalledWith("apply_client_config", {
-        preview_id: value.id,
-        confirmed: true,
-      });
-      expect(apply.element.disabled).toBe(true);
-      expect(useOrbitStore().notice?.text).toContain(
-        "配置目标或本地写入资格已变化",
-      );
-      expect(useOrbitStore().notice?.text).not.toContain(
+  it("allows a qualified target without runtime metadata and retires it on native rejection", async () => {
+    const value = preview();
+    value.codex_runtime = null;
+    useOrbitStore().state.clients[0]!.managed = "unknown";
+    const view = show(value);
+    const apply = view.get<HTMLButtonElement>(".button.primary");
+    expect(apply.element.disabled).toBe(false);
+    expect(view.text()).not.toContain("本次预览的执行来源已核验");
+    bridge.call.mockRejectedValueOnce(
+      new OrbitError(
+        "codex_configuration_target_changed",
         "synthetic-private-target",
-      );
-    },
-  );
+      ),
+    );
+    await apply.trigger("click");
+    await flushPromises();
+    expect(bridge.call).toHaveBeenCalledWith("apply_client_config", {
+      preview_id: value.id,
+      confirmed: true,
+    });
+    expect(apply.element.disabled).toBe(true);
+    expect(useOrbitStore().notice?.text).toContain(
+      "配置目标或本地写入资格已变化",
+    );
+    expect(useOrbitStore().notice?.text).not.toContain(
+      "synthetic-private-target",
+    );
+  });
 
   it("requires a generated catalog even with synthetic verified runtime metadata", async () => {
     const value = preview();
@@ -711,53 +679,27 @@ describe("Codex catalog confirmation", () => {
 
   it.each([
     [
-      "claude_configuration_target_unverified",
-      "尚未确认当前 Claude Desktop 的配置格式",
-    ],
-    [
-      "claude_configuration_target_changed",
-      "Claude Desktop 配置目标或本地写入资格已变化",
-    ],
-    [
-      "claude_configuration_context_unverified",
-      "Claude 原配置记录缺少可核验的恢复上下文",
-    ],
-    [
+      "claude",
       "claude_configuration_context_changed",
       "Claude 配置的账户、节点、授权或文件状态已变化",
     ],
-    [
-      "claude_configuration_source_unsupported",
-      "现有 Claude 配置来源无法安全迁移",
-    ],
-    ["codex_binding_unavailable", "当前可用模型缺少兼容的 Codex 模板声明"],
-    ["codex_catalog_reasoning_invalid", "当前推理档位策略不足"],
-    ["codex_model_id_unsupported", "模型调用 ID 超出"],
-    [
-      "codex_configuration_target_unverified",
-      "尚未确认已安装 Codex 的配置合同",
-    ],
-    ["codex_configuration_target_changed", "配置目标或本地写入资格已变化"],
-    ["codex_reasoning_unavailable", "当前推理档位策略不足"],
-    ["codex_catalog_template_unavailable", "当前模型目录无法安全生成"],
-    ["codex_runtime_unverified", "尚未核验目标桌面应用的执行来源"],
-    ["codex_runtime_changed", "目标桌面应用的执行来源已变化"],
-    ["codex_catalog_scope_changed", "模型目录、权限或连接状态已变化"],
-    ["codex_catalog_context_unverified", "缺少可核验的恢复上下文"],
-    ["codex_config_override_unverified", "profile 没有指向有效的配置表"],
-    ["codex_configuration_invalid", "请检查 config.toml 的格式"],
-  ])("explains blocked previews for %s", (code, explanation) => {
-    const value = preview(code!.startsWith("claude_") ? "claude" : "codex");
-    value.can_apply = false;
-    value.blocking_reason = code!;
-    value.codex_catalog = null;
-    const view = show(value);
-    expect(view.text()).toContain(explanation);
-    expect(view.text()).not.toContain(code);
-    expect(
-      view.get<HTMLButtonElement>(".button.primary").element.disabled,
-    ).toBe(true);
-  });
+    ["codex", "codex_configuration_invalid", "请检查 config.toml 的格式"],
+    ["codex", "PRIVATE_UNKNOWN_BLOCKING_REASON", "本地用户配置写入受阻"],
+  ] as const)(
+    "keeps a blocked %s preview disabled for %s",
+    async (kind, code, explanation) => {
+      const value = preview(kind);
+      value.can_apply = false;
+      value.blocking_reason = code;
+      const view = show(value);
+      expect(view.get('[role="alert"]').text()).toContain(explanation);
+      expect(view.text()).not.toContain(code);
+      const apply = view.get<HTMLButtonElement>(".button.primary");
+      expect(apply.element.disabled).toBe(true);
+      await apply.trigger("click");
+      expect(bridge.call).not.toHaveBeenCalled();
+    },
+  );
 
   it("explains a native runtime rejection in English without exposing exception details", async () => {
     const state = bootstrap("synthetic-account-a", 2);

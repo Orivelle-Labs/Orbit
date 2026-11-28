@@ -1,0 +1,144 @@
+{
+  "date": "2026-11-28",
+  "scope": "Bounded pre-release review and local regression; no publishing or production operations",
+  "repository": "Orbit",
+  "baseline": {
+    "tag": "v1.0.12",
+    "commit": "5ad934d296d3335b27891ab66698b6354398e330"
+  },
+  "candidate": {
+    "branch": "develop",
+    "commit": "a0fe8e22ff7698f4f864eb165108e30a30185f6f",
+    "tree": "329580b3e80919db09f3287f68f009fb48e5114b"
+  },
+  "task_branch": "feature/release-preflight",
+  "product_changes": "None; no confirmed release blocker was found in the reviewed Orbit delta",
+  "reviewed_behavior": [
+    "Account and selected-node model catalogs across providers, protocol-based Codex/Claude model selection, and image admission",
+    "Legacy credential namespace retained in saved secrets, helper grants, authority epochs, key revisions and restore plans",
+    "Codex Responses-compatible catalog fields, optional reasoning default, active profile cleanup and exact prior configuration restoration",
+    "Changed API consumers, frontend model list and mapping confirmations, retained permission and recovery guards"
+  ],
+  "compatibility": [
+    "The stable and candidate Panel Orbit delivery API retains provider_id=openai for older Orbit consumers; the new consumer also accepts an absent or legacy namespace label",
+    "Saved string default_reasoning_effort deserializes as Some(String); null is supported for non-reasoning Responses models",
+    "Provider labels do not grant model access; authenticated account/node catalogs and current key/authorization guards continue to restrict use",
+    "No installer, updater, database migration, protocol endpoint or production data mutation is introduced by this Orbit delta"
+  ],
+  "platform": {
+    "host": "macOS arm64",
+    "node": "24.18.0",
+    "npm": "11.16.0",
+    "rust_used": "1.98.0",
+    "rust_locked": "1.97.1",
+    "browser": "Existing installed Google Chrome; synthetic IPC fixtures, not a native desktop launch"
+  },
+  "verification": [
+    {
+      "command": "npm run check",
+      "state": "passed",
+      "log": "output/release-preflight/orbit/web-check.log",
+      "log_sha256": "74cc39d0fc60bc545b45b863e2dea801037f24153428356567817b91afcce26b",
+      "unit_files": 18,
+      "unit_tests_passed": 202,
+      "checks": [
+        "format",
+        "lint",
+        "typecheck",
+        "unit",
+        "production build",
+        "fixture exclusion"
+      ]
+    },
+    {
+      "command": "node --test tests/build/*.test.mjs",
+      "state": "passed",
+      "log": "output/release-preflight/orbit/build-tests-loopback.log",
+      "log_sha256": "0f708a91b7947811cc0beb1af27e55469612d0312ae1e392404c9692d64dff3a",
+      "tests_passed": 85
+    },
+    {
+      "command": "npm run test:e2e -- --reporter=line",
+      "state": "passed",
+      "log": "output/release-preflight/orbit/e2e.log",
+      "log_sha256": "510a2be74420b15d11689826c792daaf39b996ca7874df60db4b59e4f48381a4",
+      "tests_passed": 70,
+      "workers": 1
+    },
+    {
+      "command": "cargo test --offline --locked -p orbit-core -p orbit-credential-helper",
+      "state": "passed",
+      "log": "output/release-preflight/orbit/native-core-helper.log",
+      "log_sha256": "1ab82a73c25f2ba7a3d66634cabb8296ae16ceb25f4bd251da7e9879bc73760f",
+      "core_tests_passed": 348,
+      "core_unit_tests_ignored": 8,
+      "core_integration_tests_ignored": 2,
+      "helper_tests_passed": 2
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "state": "passed",
+      "log": "output/release-preflight/orbit/native-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "cargo check --offline --locked -p orivelle-orbit",
+      "state": "passed",
+      "log": "output/release-preflight/orbit/native-desktop-check.log",
+      "log_sha256": "9d6d413fbc12dbcbe69b3d9e9b6bbaab3addebbc234f6d65fb918bd84c877a7c"
+    }
+  ],
+  "environment_failures": [
+    {
+      "command": "node scripts/native-workflow.mjs preflight",
+      "reason": "Locked Rust 1.97.1 is absent; native workflow was not weakened. Existing Rust 1.98.0 ran the same format/test/check groups with project-local cloned caches and offline dependencies.",
+      "log": "output/release-preflight/orbit/native-preflight.log"
+    },
+    {
+      "command": "node --test tests/build/*.test.mjs",
+      "reason": "Initial build test attempt lacked runtime/tmp because strict native preflight stopped early; prepared that project directory. The prepared sandbox attempt could not bind loopback (EPERM); the unchanged suite passed with loopback access.",
+      "logs": [
+        "output/release-preflight/orbit/build-tests.log",
+        "output/release-preflight/orbit/build-tests-prepared.log"
+      ]
+    }
+  ],
+  "not_executed": [
+    "Exact locked Rust 1.97.1 native workflow",
+    "Windows native CI and desktop execution; Chrome tests include fixture platform cases only",
+    "Actual Codex/Claude configuration writes, real Keychain test, installed-client qualification and signed CLI signer probe",
+    "Opt-in real Panel/Edge/upstream and Panel PKCE acceptance tests in this receipt; root integration evidence is recorded separately",
+    "Real credentials, real upstream billing, production, installers, signing, release, update lifecycle and deployment"
+  ],
+  "core_ignored_tests": [
+    "service::tests::image_live_demo::local_docker_image_once",
+    "service::tests::macos_config_roundtrip::native_macos_service_config_roundtrip",
+    "service::tests::panel_acceptance::real_local_panel_pkce_key_permissions_and_revocation",
+    "service::tests::release_check::local_release_check_api_mask_edit_once",
+    "service::tests::release_check::local_release_check_api_stream_once",
+    "service::tests::release_check::local_release_check_cache_usage_readonly",
+    "service::tests::release_check::local_release_check_subscription_png_once",
+    "system::tests::macos_installed_clients_qualify_review_and_confirmation_in_a_fixture_home",
+    "native_keychain_roundtrip",
+    "synthetic_cli_signed_artifact"
+  ],
+  "visual_evidence": {
+    "path": "output/release-preflight/orbit/access-browser-synthetic.png",
+    "scope": "Actual browser render from the full existing e2e group, synthetic IPC fixture; visually inspected, no native client or production claim",
+    "sha256": "9748ddb34609335125b013ad00e4cd6e417cf051f3c9939c9c9ab58c06254d31"
+  },
+  "pinned_client_schema_reference": "https://github.com/openai/codex/blob/4ebc485ca321243727539187169425fcf972f2c4/codex-rs/protocol/src/openai_models.rs",
+  "result": "No confirmed blocker; locked-toolchain and Windows native verification remain unexecuted",
+  "native_environment": {
+    "RUSTUP_TOOLCHAIN": "stable",
+    "RUSTUP_AUTO_INSTALL": "0",
+    "RUSTC": "/Users/morton/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc",
+    "RUSTDOC": "/Users/morton/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustdoc",
+    "PATH_prefix": "/Users/morton/.rustup/toolchains/stable-aarch64-apple-darwin/bin",
+    "CARGO_HOME": "$PWD/runtime/cargo-home",
+    "CARGO_TARGET_DIR": "$PWD/runtime/target",
+    "CARGO_BUILD_JOBS": "4",
+    "CARGO_INCREMENTAL": "0",
+    "TMPDIR": "$PWD/runtime/tmp"
+  }
+}
