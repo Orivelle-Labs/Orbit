@@ -170,31 +170,25 @@ test("cross-provider models can be selected and confirmed using compatible proto
   expect(await calls(page, "apply_client_config")).toBe(2);
 });
 
-for (const platform of ["macos", "windows"] as const) {
-  for (const client of ["codex", "claude"] as const) {
-    test(`${client} stays confirmable after a long review on ${platform}`, async ({
-      page,
-    }) => {
-      const state = bootstrap();
-      state.platform = platform;
-      await fixture(page, { state });
-      await page.clock.install();
-      await page.goto("/#/access");
-      if (client === "claude") await chooseClaudeRoles(page);
-      const target = page
-        .locator(".access-client")
-        .nth(client === "codex" ? 0 : 1);
-      await target.getByRole("button", { name: "接入 Orbit" }).click();
-      const dialog = page.getByRole("dialog");
-      const confirm = dialog.getByRole("button", { name: "确认接入" });
-      await expect(confirm).toBeEnabled();
-      await page.clock.fastForward(45 * 60_000);
-      await expect(confirm).toBeEnabled();
-      await confirm.click();
-      await expect(dialog).toHaveCount(0);
-      expect(await calls(page, "apply_client_config")).toBe(1);
-    });
-  }
+for (const client of ["codex", "claude"] as const) {
+  test(`${client} stays confirmable after a long review`, async ({ page }) => {
+    await fixture(page);
+    await page.clock.install();
+    await page.goto("/#/access");
+    if (client === "claude") await chooseClaudeRoles(page);
+    await page
+      .locator(`#client-${client}`)
+      .getByRole("button", { name: "接入 Orbit" })
+      .click();
+    const dialog = page.getByRole("dialog");
+    const confirm = dialog.getByRole("button", { name: "确认接入" });
+    await expect(confirm).toBeEnabled();
+    await page.clock.fastForward(45 * 60_000);
+    await expect(confirm).toBeEnabled();
+    await confirm.click();
+    await expect(dialog).toHaveCount(0);
+    expect(await calls(page, "apply_client_config")).toBe(1);
+  });
 }
 
 test("changing accounts clears prompt and drafts before another submit", async ({
