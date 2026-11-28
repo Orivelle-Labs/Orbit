@@ -86,7 +86,7 @@ Codex 原始 `NOTICE` 中的 Ratatui 归属行来自上游完整声明，不代�
 
 prepare-native 在临时 hosted runner 准备锁定工具/依赖。`validate=true` 执行前端、宿主构建脚本及原生检查，Windows 另解析 PowerShell 脚本并运行浏览器流程测试；develop 和发布 tag 使用同一检查入口。普通候选、自签名打包和原生验收设置 `validate=false`，避免同一平台重复常规回归，不能由“包成功”反推所有回归已跑。只有验收脚本/指定工作流改动时，集成入口才允许在同仓库祖先关系、应用源码未变和摘要匹配后复用旧 artifacts；保留实际 build source/run，不能称其为当前源码重建。
 
-Windows updater 的独立入口会在同仓库祖先运行中寻找已归档测试包；只有断言、fixture/reuse 脚本或文档变化时才允许复用，并再次核对包摘要及版本签名。生产源码、构建器、锁文件或 updater 工作流变化均重新构建。复用运行检查当前脚本与 PowerShell 语法，回执分别记录构建 source/run 和验收 source/run；[验收结果](../testing/validation.md#windows-应用内更新2026-11-15)绑定具体产物。
+Windows updater 的独立入口会在同仓库祖先运行中寻找已归档测试包；只有断言、fixture/reuse 脚本或文档变化时才允许复用，并再次核对包摘要及版本签名。生产源码、构建器、锁文件或 updater 工作流变化均重新构建。复用运行检查当前脚本与 PowerShell 语法，回执分别记录构建 source/run 和验收 source/run；[验收结果](../testing/validation.md#平台图片与更新的关键结论)绑定具体产物。
 
 ## 安装包证据
 
@@ -117,3 +117,15 @@ codesign 环境所需公开变量和 secrets：
 Windows 使用当前用户 NSIS 安装包。应用内检查与下载沿用受限 HTTPS、进度和取消逻辑；确认安装时再次核对本地包摘要与版本签名，并要求无活动任务/配置事务、维护状态及独占 helper 锁。只从已安装的 NSIS 程序交接，私有临时安装包通过句柄禁止写入和替换，按 NSIS 的 passive/update/restart 参数更新原目录。进程启动失败时应用继续运行并释放维护状态；启动成功后退出，NSIS 执行安装与重启，现有设置与用户数据保留。旧版 Windows 没有更新通道，需要先手动安装一次支持本功能的新版。
 
 macOS 仍使用现有文件系统更新事务；Windows 使用 NSIS 的安装与错误处理，不宣称具备 macOS 同样的数据库/应用包自动回滚。源码/合成 signer 测试与实际安装、数据保留、失败处理和重启验收分别记录。[Windows updater 验收](../../tests/windows/updater.mjs)使用临时信任密钥和受控 HTTPS peer，覆盖真实版本升级、错误签名、取消、安装前篡改和安装后 helper 部署；不访问实际公开更新频道。触发正式工作流、推 tag 或公开 Release 按本次明确发布范围执行。
+
+## 界面预览
+
+[API Key 独立预览](../../previews/api-keys/index.html)复用产品样式、选择器、弹窗和状态组件，全部交互在内存模拟，不访问 Panel、安全存储、剪贴板或客户端配置。使用已有依赖，从仓库根运行：
+
+```sh
+node_modules/.bin/vite --config previews/api-keys/vite.config.ts
+node_modules/.bin/vue-tsc --noEmit -p previews/api-keys/tsconfig.json
+node_modules/.bin/vite build --config previews/api-keys/vite.config.ts
+```
+
+开发地址为 `http://127.0.0.1:1436/`，支持密钥管理、模拟接入、只读/空状态、主题及重置；刷新恢复初始数据。预览不进入正式路由或生产构建。
